@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chipereganyu</title>
+<meta name="theme-color" content="#16443e">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-32.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --teal:#16443e; --teal-dark:#0d2e2a; --orange:#f2a541;
+  --cream:#faf7f0; --ink:#1c2321; --muted:#6b6b66; --border:#e5e1d8;
+  --radius:14px;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--cream);color:var(--ink);-webkit-font-smoothing:antialiased}
+.hidden{display:none !important}
+button{font-family:inherit;cursor:pointer;border:none}
+input{font-family:inherit}
+
+/* ---- auth ---- */
+#view-auth{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+.auth-card{width:100%;max-width:360px;text-align:center}
+.brand-ring{width:96px;height:96px;margin:0 auto 20px}
+.brand-name{font-size:26px;font-weight:700;color:var(--teal);margin:0 0 6px}
+.brand-tag{font-size:14px;color:var(--muted);margin:0 0 40px}
+.btn-google{width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:13px 16px;font-size:15px;font-weight:600;color:var(--ink)}
+.btn-google:hover{border-color:var(--teal)}
+.auth-terms{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.5}
+.auth-terms a{color:var(--teal)}
+
+/* ---- app shell ---- */
+#view-app{min-height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#fff;border-bottom:1px solid var(--border)}
+.header-brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--teal);font-size:16px}
+.header-brand svg{width:28px;height:28px}
+.btn-icon{background:none;color:var(--muted);font-size:13px;font-weight:600}
+main{flex:1;padding:20px;max-width:520px;width:100%;margin:0 auto}
+.section-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:24px 0 10px}
+.section-title:first-child{margin-top:0}
+
+.actions-row{display:flex;gap:10px;margin-bottom:8px}
+.btn-primary,.btn-secondary{flex:1;border-radius:var(--radius);padding:13px;font-size:14px;font-weight:600}
+.btn-primary{background:var(--teal);color:#fff}
+.btn-secondary{background:#fff;border:1px solid var(--border);color:var(--ink)}
+
+.circle-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer}
+.circle-badge{width:44px;height:44px;border-radius:50%;background:var(--teal);flex-shrink:0}
+.circle-info{flex:1;min-width:0}
+.circle-name{font-weight:600;font-size:15px;margin:0}
+.circle-sub{font-size:13px;color:var(--muted);margin:2px 0 0}
+.empty-state{text-align:center;padding:48px 16px;color:var(--muted);font-size:14px}
+
+/* ---- modal ---- */
+.modal-overlay{position:fixed;inset:0;background:rgba(22,68,62,.4);display:flex;align-items:flex-end;justify-content:center;z-index:50}
+.modal-sheet{background:#fff;border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:480px}
+@media (min-width:520px){.modal-overlay{align-items:center}.modal-sheet{border-radius:var(--radius)}}
+.modal-sheet h3{margin:0 0 16px;font-size:17px}
+.field-label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
+.field-input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;font-size:15px}
+.field-input:focus{outline:none;border-color:var(--teal)}
+.freq-toggle{display:flex;gap:8px}
+.freq-btn{flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:#fff;font-size:13px;font-weight:600;color:var(--muted)}
+.freq-btn.on{border-color:var(--teal);color:var(--teal);background:#f0f6f4}
+.modal-actions{display:flex;gap:10px;margin-top:22px}
+
+/* ---- circle detail ---- */
+.member-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.member-row:last-child{border-bottom:none}
+.member-dot{width:10px;height:10px;border-radius:50%;background:var(--border);flex-shrink:0}
+.member-dot.paid{background:var(--orange)}
+.member-name{flex:1;font-size:14px}
+.paid-tag{font-size:12px;color:var(--muted)}
+.paid-tag.on{color:var(--orange);font-weight:600}
+.btn-paid{background:var(--teal);color:#fff;border-radius:10px;padding:12px;width:100%;font-size:14px;font-weight:600;margin-top:16px}
+
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="view-auth">
+  <div class="auth-card">
+    <svg class="brand-ring" viewBox="0 0 1024 1024">
+      <rect width="1024" height="1024" rx="220" fill="#16443e"/>
+      <circle cx="512" cy="512" r="240" fill="none" stroke="#faf7f0" stroke-width="56" stroke-linecap="round" stroke-dasharray="1150 358" transform="rotate(-90 512 512)"/>
+      <circle cx="512" cy="272" r="55" fill="#f2a541"/>
+    </svg>
+    <p class="brand-name">chipereganyu</p>
+    <p class="brand-tag">Save together with a group, taking turns to receive the pot.</p>
+    <button class="btn-google" onclick="signInWithGoogle()">
+      <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.98v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 0 1 3.67 9c0-.59.1-1.17.28-1.7V4.97H.98A9 9 0 0 0 0 9c0 1.45.35 2.83.98 4.03l2.97-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 0 0 .98 4.97l2.97 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Continue with Google
+    </button>
+    <p class="auth-terms">By continuing you agree to the <a href="#">terms</a> and <a href="#">privacy policy</a>.</p>
+  </div>
+</div>
+
+<div id="view-app" class="hidden">
+  <header>
+    <div class="header-brand">
+      <svg viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="220" fill="#16443e"/><circle cx="512" cy="512" r="240" fill="none" stroke="#faf7f0" stroke-width="56" stroke-linecap="round" stroke-dasharray="1150 358" transform="rotate(-90 512 512)"/><circle cx="512" cy="272" r="55" fill="#f2a541"/></svg>
+      chipereganyu
+    </div>
+    <button class="btn-icon" onclick="signOut()">Sign out</button>
+  </header>
+
+  <main id="view-dashboard">
+    <div class="actions-row">
+      <button class="btn-primary" onclick="openModal('create')">New circle</button>
+      <button class="btn-secondary" onclick="openModal('join')">Join with code</button>
+    </div>
+    <p class="section-title">Your circles</p>
+    <div id="circles-list"></div>
+  </main>
+
+  <main id="view-circle" class="hidden">
+    <button class="btn-icon" style="margin-bottom:12px" onclick="showDashboard()">&larr; back</button>
+    <p class="section-title" id="circle-detail-name">Circle</p>
+    <div id="circle-detail-members"></div>
+    <button class="btn-paid" id="btn-mark-paid" onclick="markPaid()">Mark my contribution as paid</button>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ---- fill these in from your Supabase project settings ----
+const SUPABASE_URL = 'https://wrwppmmruiiutxmkcdvp.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_uhxK4qTx1x5_BiQAh3IgCA_XudvbWB6';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let currentUser = null;
+let myCircles = [];
+let activeCircle = null;
+
+async function init(){
+  const { data:{ session } } = await sb.auth.getSession();
+  currentUser = session ? session.user : null;
+  render();
+  sb.auth.onAuthStateChange((_event, session)=>{
+    currentUser = session ? session.user : null;
+    render();
+  });
+}
+
+function render(){
+  document.getElementById('view-auth').classList.toggle('hidden', !!currentUser);
+  document.getElementById('view-app').classList.toggle('hidden', !currentUser);
+  if(currentUser) loadCircles();
+}
+
+function signInWithGoogle(){
+  sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: window.location.origin + window.location.pathname } });
+}
+function signOut(){ sb.auth.signOut(); }
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2400);
+}
+function displayName(){
+  return currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email;
+}
+function genCode(){
+  return Math.random().toString(36).slice(2,7).toUpperCase();
+}
+
+// ---- circles ----
+async function loadCircles(){
+  const { data, error } = await sb
+    .from('circle_members')
+    .select('circle_id, circles(*)')
+    .eq('user_id', currentUser.id);
+  if(error){ toast(error.message); return; }
+  myCircles = (data||[]).map(r=>r.circles).filter(Boolean);
+  renderCircles();
+}
+
+function renderCircles(){
+  const el = document.getElementById('circles-list');
+  if(!myCircles.length){
+    el.innerHTML = '<div class="empty-state">No circles yet — start one or join with a code.</div>';
+    return;
+  }
+  el.innerHTML = myCircles.map(c=>`
+    <div class="circle-card" onclick="openCircle('${c.id}')">
+      <div class="circle-badge"></div>
+      <div class="circle-info">
+        <p class="circle-name">${escapeHtml(c.name)}</p>
+        <p class="circle-sub">${c.currency} ${Number(c.contribution_amount).toLocaleString()} · ${c.frequency}</p>
+      </div>
+    </div>`).join('');
+}
+
+async function createCircle(name, amount, freq){
+  const code = genCode();
+  const { data, error } = await sb.from('circles')
+    .insert({ code, name, contribution_amount: amount, frequency: freq, created_by: currentUser.id })
+    .select().single();
+  if(error){ toast(error.message); return; }
+  const { error: memErr } = await sb.from('circle_members')
+    .insert({ circle_id: data.id, user_id: currentUser.id, display_name: displayName(), rotation_position: 0 });
+  if(memErr){ toast(memErr.message); return; }
+  closeModal();
+  toast(`Circle created — share code ${code}`);
+  loadCircles();
+}
+
+async function joinCircle(code){
+  const { error } = await sb.rpc('join_circle', { p_code: code.trim().toUpperCase(), p_display_name: displayName() });
+  if(error){ toast(error.message); return; }
+  closeModal();
+  toast('Joined circle');
+  loadCircles();
+}
+
+async function openCircle(id){
+  activeCircle = myCircles.find(c=>c.id===id);
+  document.getElementById('view-dashboard').classList.add('hidden');
+  document.getElementById('view-circle').classList.remove('hidden');
+  document.getElementById('circle-detail-name').textContent = activeCircle.name;
+  const { data, error } = await sb.from('circle_members').select('*').eq('circle_id', id);
+  if(error){ toast(error.message); return; }
+  document.getElementById('circle-detail-members').innerHTML = (data||[]).map(m=>`
+    <div class="member-row">
+      <div class="member-dot"></div>
+      <div class="member-name">${escapeHtml(m.display_name)}</div>
+      <div class="paid-tag">not yet wired to a cycle</div>
+    </div>`).join('');
+}
+
+function showDashboard(){
+  document.getElementById('view-circle').classList.add('hidden');
+  document.getElementById('view-dashboard').classList.remove('hidden');
+}
+
+function markPaid(){
+  toast('Wire this up once cycles are generated — see the schema for the contributions table.');
+}
+
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- modals ----
+function openModal(kind){
+  const root = document.getElementById('modal-root');
+  if(kind==='create'){
+    root.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+        <div class="modal-sheet">
+          <h3>New circle</h3>
+          <label class="field-label">Group name</label>
+          <input class="field-input" id="cg-name" placeholder="e.g. Family circle">
+          <label class="field-label">Contribution per member</label>
+          <input class="field-input" id="cg-amount" type="number" inputmode="numeric" placeholder="5000">
+          <label class="field-label">Frequency</label>
+          <div class="freq-toggle">
+            <button class="freq-btn on" id="freq-monthly" onclick="pickFreq('monthly')">Monthly</button>
+            <button class="freq-btn" id="freq-weekly" onclick="pickFreq('weekly')">Weekly</button>
+          </div>
+          <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitCreate()">Create</button>
+          </div>
+        </div>
+      </div>`;
+  } else {
+    root.innerHTML = `
+      <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
+        <div class="modal-sheet">
+          <h3>Join a circle</h3>
+          <label class="field-label">Circle code</label>
+          <input class="field-input" id="jg-code" placeholder="e.g. F3K9X" style="text-transform:uppercase">
+          <div class="modal-actions">
+            <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+            <button class="btn-primary" onclick="submitJoin()">Join</button>
+          </div>
+        </div>
+      </div>`;
+  }
+}
+function closeModal(){ document.getElementById('modal-root').innerHTML=''; }
+function pickFreq(f){
+  document.getElementById('freq-monthly').classList.toggle('on', f==='monthly');
+  document.getElementById('freq-weekly').classList.toggle('on', f==='weekly');
+  document.getElementById('freq-monthly').dataset.picked = f==='monthly';
+  window._freq = f;
+}
+window._freq = 'monthly';
+function submitCreate(){
+  const name = document.getElementById('cg-name').value.trim();
+  const amount = Number(document.getElementById('cg-amount').value);
+  if(!name){ toast('Enter a group name'); return; }
+  if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+  createCircle(name, amount, window._freq);
+}
+function submitJoin(){
+  const code = document.getElementById('jg-code').value.trim();
+  if(!code){ toast('Enter a circle code'); return; }
+  joinCircle(code);
+}
+
+init();
+</script>
+</body>
+</html>
