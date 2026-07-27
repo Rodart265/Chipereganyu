@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Chipereganyu</title>
 <meta name="theme-color" content="#16443e">
+<!-- iOS Safari ignores manifest.json's display:standalone — it needs its own
+     meta tags to run full-screen when added to the home screen. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chipereganyu">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-32.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -13,17 +18,28 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --teal:#16443e; --teal-dark:#0d2e2a; --orange:#f2a541;
+  --teal:#16443e; --teal-dark:#0d2e2a; --orange:#f2a541; --red:#d64545;
   --cream:#faf7f0; --ink:#1c2321; --muted:#6b6b66; --border:#e5e1d8;
   --radius:14px;
 }
-*{box-sizing:border-box}
-body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--cream);color:var(--ink);-webkit-font-smoothing:antialiased}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:'Inter',system-ui,sans-serif;background:var(--cream);color:var(--ink);-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
 .hidden{display:none !important}
-button{font-family:inherit;cursor:pointer;border:none}
+button{font-family:inherit;cursor:pointer;border:none;transition:transform .1s ease}
+button:disabled{opacity:.6;cursor:default}
 input{font-family:inherit}
 
-/* ---- auth ---- */
+/* Tap feedback — a static UI reads as "webpage"; a surface that visibly
+   responds to touch reads as "app". Kept subtle (small scale, no color
+   flash) so it doesn't feel gimmicky on repeated taps. */
+.btn-primary:active,.btn-secondary:active,.btn-paid:active,.btn-line:active,.btn-google:active{transform:scale(.97)}
+.circle-card,.product-card:not(.disabled){transition:transform .1s ease,background .1s ease}
+.circle-card:active,.product-card:not(.disabled):active{transform:scale(.98);background:#f7f5ef}
+.icon-btn{transition:transform .1s ease}
+.icon-btn:active{transform:scale(.88)}
+
+.icon{width:18px;height:18px;flex-shrink:0;display:inline-block;vertical-align:middle}
+
 #view-auth{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
 .auth-card{width:100%;max-width:360px;text-align:center}
 .brand-ring{width:96px;height:96px;margin:0 auto 20px}
@@ -34,52 +50,108 @@ input{font-family:inherit}
 .auth-terms{font-size:12px;color:var(--muted);margin-top:20px;line-height:1.5}
 .auth-terms a{color:var(--teal)}
 
-/* ---- app shell ---- */
-#view-app{min-height:100vh;display:flex;flex-direction:column}
-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#fff;border-bottom:1px solid var(--border)}
-.header-brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--teal);font-size:16px}
-.header-brand svg{width:28px;height:28px}
-.btn-icon{background:none;color:var(--muted);font-size:13px;font-weight:600}
-main{flex:1;padding:20px;max-width:520px;width:100%;margin:0 auto}
-.section-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:24px 0 10px}
+#view-app{height:100vh;height:100dvh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;padding:calc(16px + env(safe-area-inset-top)) 20px 16px;background:#fff;border-bottom:1px solid var(--border);flex-shrink:0;z-index:10}
+.header-left{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--teal);font-size:16px}
+.header-leading{display:flex;align-items:center;justify-content:center;width:32px;height:32px;margin-left:-6px;border-radius:8px;flex-shrink:0}
+.header-leading svg{width:28px;height:28px}
+.header-leading.is-back{cursor:pointer}
+.header-leading.is-back svg{width:22px;height:22px}
+.header-leading.is-back:active{background:var(--cream);transform:scale(.92)}
+.btn-icon{background:none;color:var(--muted);font-size:13px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+main{padding:20px;max-width:520px;width:100%;margin:0 auto;height:100%}
+.section-title{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin:24px 0 10px;display:flex;align-items:center;gap:6px}
 .section-title:first-child{margin-top:0}
 
+/* View stack: the three top-level screens are stacked and absolutely
+   positioned so two can be visible mid-transition (outgoing sliding away,
+   incoming sliding in) instead of one hard-cutting to the other. */
+.view-stack{position:relative;flex:1;overflow:hidden}
+.view-stack > main{position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.view-in-right,.view-in-left,.view-out-left,.view-out-right{transition:transform .28s cubic-bezier(.4,0,.2,1),opacity .28s ease}
+.view-in-right{transform:translateX(100%)}
+.view-in-left{transform:translateX(-100%)}
+.view-out-left.view-active{transform:translateX(-25%);opacity:.4}
+.view-out-right.view-active{transform:translateX(25%);opacity:.4}
+.view-in-right.view-active,.view-in-left.view-active{transform:translateX(0);opacity:1}
+
 .actions-row{display:flex;gap:10px;margin-bottom:8px}
-.btn-primary,.btn-secondary{flex:1;border-radius:var(--radius);padding:13px;font-size:14px;font-weight:600}
+.btn-primary,.btn-secondary{flex:1;border-radius:var(--radius);padding:13px;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px}
 .btn-primary{background:var(--teal);color:#fff}
 .btn-secondary{background:#fff;border:1px solid var(--border);color:var(--ink)}
 
 .circle-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:10px;display:flex;align-items:center;gap:14px;cursor:pointer}
-.circle-badge{width:44px;height:44px;border-radius:50%;background:var(--teal);flex-shrink:0}
+.circle-badge{width:44px;height:44px;border-radius:50%;background:var(--teal);flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff}
 .circle-info{flex:1;min-width:0}
 .circle-name{font-weight:600;font-size:15px;margin:0}
 .circle-sub{font-size:13px;color:var(--muted);margin:2px 0 0}
-.empty-state{text-align:center;padding:48px 16px;color:var(--muted);font-size:14px}
+.empty-state{text-align:center;padding:40px 16px;color:var(--muted);font-size:14px;background:#fff;border:1px dashed var(--border);border-radius:var(--radius)}
+.empty-state .icon{width:28px;height:28px;color:var(--border);margin-bottom:10px}
 
-/* ---- modal ---- */
+.product-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.product-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px 14px;text-align:left;display:flex;flex-direction:column;gap:6px;cursor:pointer}
+.product-card .icon{width:24px;height:24px;color:var(--teal)}
+.product-card .product-name{font-weight:600;font-size:14px;margin:2px 0 0}
+.product-card .product-tag{font-size:12px;color:var(--muted);margin:0;line-height:1.35}
+.product-card.disabled{opacity:.5;cursor:default}
+.badge-soon{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--muted);background:var(--cream);border:1px solid var(--border);border-radius:6px;padding:2px 6px;width:fit-content}
+
+.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px}
+.stat-card .icon{color:var(--teal);margin-bottom:8px}
+.stat-label{font-size:12px;color:var(--muted);margin:0 0 4px}
+.stat-value{font-size:16px;font-weight:700;margin:0}
+
+.progress-label{font-size:12px;color:var(--muted);margin:0 0 4px;display:flex;justify-content:space-between}
+.progress-track{background:var(--border);border-radius:8px;height:8px;overflow:hidden;margin-bottom:14px}
+.progress-fill{background:var(--orange);height:100%;border-radius:8px;transition:width .3s}
+
+.activity-item{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
+.activity-item:last-child{border-bottom:none}
+.activity-item .icon{color:var(--muted);margin-top:1px}
+.activity-text{flex:1;color:var(--ink)}
+.activity-time{font-size:11px;color:var(--muted);white-space:nowrap}
+
 .modal-overlay{position:fixed;inset:0;background:rgba(22,68,62,.4);display:flex;align-items:flex-end;justify-content:center;z-index:50}
-.modal-sheet{background:#fff;border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:480px}
+.modal-sheet{background:#fff;border-radius:20px 20px 0 0;padding:24px;width:100%;max-width:480px;max-height:88vh;overflow-y:auto}
 @media (min-width:520px){.modal-overlay{align-items:center}.modal-sheet{border-radius:var(--radius)}}
-.modal-sheet h3{margin:0 0 16px;font-size:17px}
+.modal-sheet h3{margin:0 0 16px;font-size:17px;display:flex;align-items:center;gap:8px}
 .field-label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin:14px 0 6px}
 .field-input{width:100%;padding:12px 14px;border:1px solid var(--border);border-radius:10px;font-size:15px}
 .field-input:focus{outline:none;border-color:var(--teal)}
+.field-hint{font-size:12px;color:var(--muted);margin:6px 0 0}
 .freq-toggle{display:flex;gap:8px}
 .freq-btn{flex:1;padding:11px;border:1px solid var(--border);border-radius:10px;background:#fff;font-size:13px;font-weight:600;color:var(--muted)}
 .freq-btn.on{border-color:var(--teal);color:var(--teal);background:#f0f6f4}
 .modal-actions{display:flex;gap:10px;margin-top:22px}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+.toggle-row .field-label{margin:0}
+.switch{width:42px;height:24px;border-radius:12px;background:var(--border);position:relative;flex-shrink:0}
+.switch.on{background:var(--teal)}
+.switch::after{content:'';position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s}
+.switch.on::after{left:20px}
 
-/* ---- circle detail ---- */
-.member-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)}
+.member-row{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border)}
 .member-row:last-child{border-bottom:none}
 .member-dot{width:10px;height:10px;border-radius:50%;background:var(--border);flex-shrink:0}
 .member-dot.paid{background:var(--orange)}
-.member-name{flex:1;font-size:14px}
+.member-dot.late{background:var(--red)}
+.member-name{flex:1;font-size:14px;min-width:0}
+.member-sub{display:block;font-size:12px;color:var(--muted)}
 .paid-tag{font-size:12px;color:var(--muted)}
 .paid-tag.on{color:var(--orange);font-weight:600}
-.btn-paid{background:var(--teal);color:#fff;border-radius:10px;padding:12px;width:100%;font-size:14px;font-weight:600;margin-top:16px}
+.paid-tag.late{color:var(--red);font-weight:600}
+.icon-btn{background:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;padding:7px;border-radius:8px;flex-shrink:0}
+.icon-btn:hover{background:var(--cream);color:var(--ink)}
+.btn-paid{background:var(--teal);color:#fff;border-radius:10px;padding:12px;width:100%;font-size:14px;font-weight:600;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn-line{background:#fff;border:1px solid var(--border);color:var(--ink);border-radius:10px;padding:11px;width:100%;font-size:13px;font-weight:600;margin-top:10px;display:flex;align-items:center;justify-content:center;gap:6px}
 
-#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s}
+.fund-box{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.fund-box .fund-balance{font-size:22px;font-weight:700;color:var(--teal);margin:2px 0 12px}
+.fund-log-item{display:flex;justify-content:space-between;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border)}
+.fund-log-item:last-child{border-bottom:none}
+
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
 </style>
 </head>
@@ -104,211 +176,995 @@ main{flex:1;padding:20px;max-width:520px;width:100%;margin:0 auto}
 
 <div id="view-app" class="hidden">
   <header>
-    <div class="header-brand">
-      <svg viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="220" fill="#16443e"/><circle cx="512" cy="512" r="240" fill="none" stroke="#faf7f0" stroke-width="56" stroke-linecap="round" stroke-dasharray="1150 358" transform="rotate(-90 512 512)"/><circle cx="512" cy="272" r="55" fill="#f2a541"/></svg>
-      chipereganyu
+    <div class="header-left">
+      <div class="header-leading" id="header-leading"></div>
+      <span id="header-title">chipereganyu</span>
     </div>
-    <button class="btn-icon" onclick="signOut()">Sign out</button>
+    <button class="btn-icon" onclick="signOut()" id="btn-signout">Sign out</button>
   </header>
 
-  <main id="view-dashboard">
-    <div class="actions-row">
-      <button class="btn-primary" onclick="openModal('create')">New circle</button>
-      <button class="btn-secondary" onclick="openModal('join')">Join with code</button>
-    </div>
-    <p class="section-title">Your circles</p>
-    <div id="circles-list"></div>
-  </main>
+  <div class="view-stack">
+    <main id="view-products">
+      <p class="section-title">What are you saving for?</p>
+      <div class="product-grid" id="products-grid"></div>
+    </main>
 
-  <main id="view-circle" class="hidden">
-    <button class="btn-icon" style="margin-bottom:12px" onclick="showDashboard()">&larr; back</button>
-    <p class="section-title" id="circle-detail-name">Circle</p>
-    <div id="circle-detail-members"></div>
-    <button class="btn-paid" id="btn-mark-paid" onclick="markPaid()">Mark my contribution as paid</button>
-  </main>
+    <main id="view-dashboard" class="hidden">
+      <div class="stats-grid" id="stats-grid"></div>
+      <div class="actions-row">
+        <button class="btn-primary" id="btn-new-circle" onclick="openModal('create')"></button>
+        <button class="btn-secondary" onclick="openModal('join')"></button>
+      </div>
+      <p class="section-title" id="circles-list-title">Your circles</p>
+      <div id="circles-list"></div>
+      <div id="activity-section"></div>
+    </main>
+
+    <main id="view-circle" class="hidden">
+      <p class="section-title" id="circle-detail-name">Circle</p>
+      <div id="circle-detail-body"></div>
+    </main>
+  </div>
 </div>
 
 <div id="modal-root"></div>
 <div id="toast"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
 <script>
-// ---- fill these in from your Supabase project settings ----
-const SUPABASE_URL = 'https://wrwppmmruiiutxmkcdvp.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_uhxK4qTx1x5_BiQAh3IgCA_XudvbWB6';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ---- your Chipereganyu Firebase project ----
+const firebaseConfig = {
+  apiKey: "AIzaSyAo_AZaKhZle5njhcNOUrDER0GREYkvl70",
+  authDomain: "chipereganyu-503420.firebaseapp.com",
+  projectId: "chipereganyu-503420",
+  storageBucket: "chipereganyu-503420.firebasestorage.app",
+  messagingSenderId: "751391589138",
+  appId: "1:751391589138:web:0359f427e0f84fe7efa9cb",
+  measurementId: "G-SC2LW4ZDZP"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.firestore();
 
-let currentUser = null;
-let myCircles = [];
-let activeCircle = null;
+// Offline support: reads fall back to cache and writes queue locally when the
+// network drops, which matters a lot here — Malawi's internet penetration is
+// far lower than its mobile money penetration, so intermittent connectivity
+// is the normal case for a lot of this app's real users, not an edge case.
+db.enablePersistence({ synchronizeTabs: true }).catch(function(e){
+  // 'failed-precondition' = another tab already has persistence open; the
+  // app still works there, it just won't have offline cache in *this* tab.
+  // 'unimplemented' = browser doesn't support it. Neither is worth alarming
+  // the user about, so this fails silently rather than toasting on load.
+  console.warn('Offline persistence not enabled:', e && e.code);
+});
 
-async function init(){
-  const { data:{ session } } = await sb.auth.getSession();
-  currentUser = session ? session.user : null;
-  render();
-  sb.auth.onAuthStateChange((_event, session)=>{
-    currentUser = session ? session.user : null;
+const MEMBER_COLORS = ['#16443e','#f2a541','#8b5cf6','#e0524a','#2563eb','#059669'];
+const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I/L — read aloud safely
+const CODE_LENGTH = 6;
+const ACTIVITY_CAP = 30;
+
+// Real Lucide icon path data (fetched from the Lucide source, not hand-drawn),
+// inlined so this stays a single static file with no icon-font dependency.
+const ICONS = {
+  "activity": "<path d=\"M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2\" />",
+  "banknote": "<rect width=\"20\" height=\"12\" x=\"2\" y=\"6\" rx=\"2\" /> <circle cx=\"12\" cy=\"12\" r=\"2\" /> <path d=\"M6 12h.01M18 12h.01\" />",
+  "calendar": "<path d=\"M8 2v4\" /> <path d=\"M16 2v4\" /> <rect width=\"18\" height=\"18\" x=\"3\" y=\"4\" rx=\"2\" /> <path d=\"M3 10h18\" />",
+  "chart-pie": "<path d=\"M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z\" /> <path d=\"M21.21 15.89A10 10 0 1 1 8 2.83\" />",
+  "check": "<path d=\"M20 6 9 17l-5-5\" />",
+  "chevron-left": "<path d=\"m15 18-6-6 6-6\" />",
+  "chevron-right": "<path d=\"m9 18 6-6-6-6\" />",
+  "circle-alert": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\" /> <line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\" />",
+  "circle-check-big": "<path d=\"M21.801 10A10 10 0 1 1 17 3.335\" /> <path d=\"m9 11 3 3L22 4\" />",
+  "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"m9 12 2 2 4-4\" />",
+  "circle": "<circle cx=\"12\" cy=\"12\" r=\"10\" />",
+  "clock": "<circle cx=\"12\" cy=\"12\" r=\"10\" /> <path d=\"M12 6v6l4 2\" />",
+  "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\" /> <path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\" />",
+  "handshake": "<path d=\"m11 17 2 2a1 1 0 1 0 3-3\" /> <path d=\"m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 2 0 0 0 1.42.25L21 4\" /> <path d=\"m21 3 1 11h-2\" /> <path d=\"M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3\" /> <path d=\"M3 4h8\" />",
+  "house": "<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\" /> <path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\" />",
+  "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\" /> <path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\" />",
+  "log-out": "<path d=\"m16 17 5-5-5-5\" /> <path d=\"M21 12H9\" /> <path d=\"M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4\" />",
+  "piggy-bank": "<path d=\"M11 17h3v2a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-3a3.16 3.16 0 0 0 2-2h1a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1a5 5 0 0 0-2-4V3a4 4 0 0 0-3.2 1.6l-.3.4H11a6 6 0 0 0-6 6v1a5 5 0 0 0 2 4v3a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1z\" /> <path d=\"M16 10h.01\" /> <path d=\"M2 8v1a2 2 0 0 0 2 2h1\" />",
+  "plus": "<path d=\"M5 12h14\" /> <path d=\"M12 5v14\" />",
+  "rotate-cw": "<path d=\"M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8\" /> <path d=\"M21 3v5h-5\" />",
+  "share-2": "<circle cx=\"18\" cy=\"5\" r=\"3\" /> <circle cx=\"6\" cy=\"12\" r=\"3\" /> <circle cx=\"18\" cy=\"19\" r=\"3\" /> <line x1=\"8.59\" x2=\"15.42\" y1=\"13.51\" y2=\"17.49\" /> <line x1=\"15.41\" x2=\"8.59\" y1=\"6.51\" y2=\"10.49\" />",
+  "trending-up": "<path d=\"M16 7h6v6\" /> <path d=\"m22 7-8.5 8.5-5-5L2 17\" />",
+  "user-minus": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\" /> <circle cx=\"9\" cy=\"7\" r=\"4\" /> <line x1=\"22\" x2=\"16\" y1=\"11\" y2=\"11\" />",
+  "users": "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\" /> <path d=\"M16 3.128a4 4 0 0 1 0 7.744\" /> <path d=\"M22 21v-2a4 4 0 0 0-3-3.87\" /> <circle cx=\"9\" cy=\"7\" r=\"4\" />",
+  "wallet": "<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\" /> <path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\" />",
+  "x": "<path d=\"M18 6 6 18\" /> <path d=\"m6 6 12 12\" />"
+};
+function icon(name, extraClass){
+  return '<svg class="icon'+(extraClass?(' '+extraClass):'')+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'+(ICONS[name]||'')+'</svg>';
+}
+
+// Product catalogue. `live` products have real screens; the rest render as
+// disabled "coming soon" cards so the roadmap is visible without pretending
+// they're built. Adding a real vertical later means flipping `live` to true
+// and writing its render/action functions — the shell already accounts for it.
+const PRODUCTS = [
+  {id:'rotation', name:'Chipereganyu', tag:'Take turns receiving the pot', icon:'rotate-cw', live:true},
+  {id:'village_banking', name:'Village Banking', tag:'Shared savings plus a social fund', icon:'piggy-bank', live:true},
+  {id:'funeral', name:'Funeral Fund', tag:'Community support when it matters', icon:'handshake', live:false},
+  {id:'church', name:'Church Fundraising', tag:'Goal-based group giving', icon:'chart-pie', live:false},
+  {id:'youth', name:'Youth Savings', tag:'Savings goals for young members', icon:'users', live:false},
+  {id:'school', name:'School Fees', tag:'Save together toward term fees', icon:'banknote', live:false},
+  {id:'investment', name:'Investment Club', tag:'Pool money, invest together', icon:'trending-up', live:false},
+  {id:'loans', name:'Loan Tracking', tag:'Track loans and repayments', icon:'wallet', live:false}
+];
+function productMeta(id){ return PRODUCTS.find(function(p){ return p.id===id; }) || PRODUCTS[0]; }
+
+const BRAND_MARK = '<svg viewBox="0 0 1024 1024"><rect width="1024" height="1024" rx="220" fill="#16443e"/><circle cx="512" cy="512" r="240" fill="none" stroke="#faf7f0" stroke-width="56" stroke-linecap="round" stroke-dasharray="1150 358" transform="rotate(-90 512 512)"/><circle cx="512" cy="272" r="55" fill="#f2a541"/></svg>';
+const VIEW_IDS = {products:'view-products', dashboard:'view-dashboard', circle:'view-circle'};
+const ROUTE_DEPTH = {products:0, dashboard:1, circle:2};
+
+let curUser = null;
+let chipGroups = [];
+let unsubChip = null;
+let activeId = null;
+let curProduct = null; // 'rotation' | 'village_banking' — which dashboard we're viewing
+let pendingJoinCode = null; // from an invite link, prefilled into the join modal
+let curView = null; // 'products' | 'dashboard' | 'circle' — drives transition direction
+
+function init(){
+  const params = new URLSearchParams(location.search);
+  if(params.get('code')) pendingJoinCode = params.get('code').toUpperCase();
+
+  auth.getRedirectResult().catch(function(e){ if(e && e.message) toast(e.message); });
+  auth.onAuthStateChanged(function(user){
+    curUser = user;
     render();
+  });
+  wireDelegatedEvents();
+  window.addEventListener('popstate', function(e){
+    const path = (e.state && e.state.path) || (location.hash ? location.hash.slice(1) : '/');
+    applyRoute(path);
   });
 }
 
 function render(){
-  document.getElementById('view-auth').classList.toggle('hidden', !!currentUser);
-  document.getElementById('view-app').classList.toggle('hidden', !currentUser);
-  if(currentUser) loadCircles();
+  document.getElementById('view-auth').classList.toggle('hidden', !!curUser);
+  document.getElementById('view-app').classList.toggle('hidden', !curUser);
+  if(curUser){
+    listenGroups();
+    if(curView === null){
+      // First time this session we have both a signed-in user and rendered
+      // DOM — establish the initial route from whatever's in the URL (so a
+      // deep link or a refreshed page lands in the right place), using
+      // replaceState so it doesn't create a spurious extra history entry.
+      const initialPath = location.hash ? location.hash.slice(1) : '/';
+      navigate(initialPath, {replace:true});
+    }
+    if(pendingJoinCode){ openModal('join'); const inp=document.getElementById('jg-code'); if(inp) inp.value = pendingJoinCode; pendingJoinCode = null; }
+  } else {
+    stopListening();
+    curView = null;
+  }
+}
+
+// ---- Router ----
+// Hash-based on purpose: it needs zero server/hosting configuration to work
+// (the fragment never reaches the server, so a refresh or a direct link
+// always loads this same index.html — no SPA rewrite rule required, which
+// matters since there's no firebase.json/hosting config to confirm one
+// exists). pushState still drives real browser history, so the back button
+// and the phone's back gesture both work correctly against it.
+function navigate(path, opts){
+  opts = opts || {};
+  if(opts.replace) history.replaceState({path:path}, '', '#'+path);
+  else history.pushState({path:path}, '', '#'+path);
+  applyRoute(path);
+}
+function applyRoute(path){
+  const parts = (path||'/').split('/').filter(Boolean);
+  if(parts[0]==='p' && parts[1]) openProduct(parts[1]);
+  else if(parts[0]==='c' && parts[1]) openCircle(parts[1]);
+  else showProducts();
+}
+function goProducts(){ navigate('/'); }
+function goProduct(id){ navigate('/p/'+id); }
+function goCircle(id){ navigate('/c/'+id); }
+// Used for redirects the app triggers itself (a circle disappearing from
+// under the viewer, leaving a circle) rather than a person tapping "back" —
+// these replace the current history entry instead of pushing, so back/forward
+// don't land on a route that's no longer valid.
+function exitCircle(){
+  if(curProduct) navigate('/p/'+curProduct, {replace:true});
+  else navigate('/', {replace:true});
+}
+
+function updateHeader(viewName){
+  const leading = document.getElementById('header-leading');
+  const title = document.getElementById('header-title');
+  if(viewName === 'dashboard' || viewName === 'circle'){
+    leading.innerHTML = icon('chevron-left');
+    leading.classList.add('is-back');
+    leading.onclick = function(){ history.back(); };
+  } else {
+    leading.innerHTML = BRAND_MARK;
+    leading.classList.remove('is-back');
+    leading.onclick = null;
+  }
+  if(viewName === 'products') title.textContent = 'chipereganyu';
+  else if(viewName === 'dashboard') title.textContent = curProduct ? productMeta(curProduct).name : 'chipereganyu';
+  else if(viewName === 'circle') title.textContent = (activeGroup()||{}).name || 'Circle';
+}
+
+// Renders into the target view, then animates the swap: the previous view
+// slides out (left if moving deeper, right if moving back) while the new one
+// slides in from the opposite side — the motion itself is most of what
+// signals "you navigated" rather than "the page changed".
+function showView(viewName, renderFn){
+  renderFn();
+  updateHeader(viewName);
+  const newEl = document.getElementById(VIEW_IDS[viewName]);
+  const oldViewName = curView;
+  if(!oldViewName || oldViewName === viewName){
+    Object.keys(VIEW_IDS).forEach(function(v){ document.getElementById(VIEW_IDS[v]).classList.toggle('hidden', v!==viewName); });
+    curView = viewName;
+    return;
+  }
+  const oldEl = document.getElementById(VIEW_IDS[oldViewName]);
+  const forward = ROUTE_DEPTH[viewName] > ROUTE_DEPTH[oldViewName];
+  newEl.classList.remove('hidden');
+  newEl.classList.add(forward ? 'view-in-right' : 'view-in-left');
+  oldEl.classList.add(forward ? 'view-out-left' : 'view-out-right');
+  void newEl.offsetWidth; // force layout so the next class add actually transitions
+  requestAnimationFrame(function(){
+    newEl.classList.add('view-active');
+    oldEl.classList.add('view-active');
+  });
+  setTimeout(function(){
+    oldEl.classList.add('hidden');
+    oldEl.classList.remove('view-out-left','view-out-right','view-active');
+    newEl.classList.remove('view-in-right','view-in-left','view-active');
+  }, 280);
+  curView = viewName;
 }
 
 function signInWithGoogle(){
-  sb.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: window.location.origin + window.location.pathname } });
+  const provider = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithRedirect(provider);
 }
-function signOut(){ sb.auth.signOut(); }
+function signOut(){ auth.signOut(); }
 
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 2400);
+  setTimeout(function(){ t.classList.remove('show'); }, 2400);
 }
-function displayName(){
-  return currentUser.user_metadata?.full_name || currentUser.user_metadata?.name || currentUser.email;
+function escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
 }
+function fmtMWK(n){ return 'MWK ' + Number(n||0).toLocaleString(); }
 function genCode(){
-  return Math.random().toString(36).slice(2,7).toUpperCase();
+  let code = '';
+  for(let i=0;i<CODE_LENGTH;i++){ code += CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)]; }
+  return code;
+}
+function nextDue(freq){
+  const d = new Date();
+  if(freq==='weekly') d.setDate(d.getDate()+7); else d.setMonth(d.getMonth()+1);
+  return d.toISOString().split('T')[0];
+}
+function timeAgo(ms){
+  if(!ms) return '';
+  const s = Math.floor((Date.now()-ms)/1000);
+  if(s<60) return 'just now';
+  const m = Math.floor(s/60); if(m<60) return m+'m ago';
+  const h = Math.floor(m/60); if(h<24) return h+'h ago';
+  const d = Math.floor(h/24); if(d<30) return d+'d ago';
+  return new Date(ms).toISOString().split('T')[0];
+}
+function activeGroup(){ return chipGroups.find(function(g){ return g.id===activeId; }) || null; }
+function productGroups(){ return chipGroups.filter(function(g){ return (g.type||'rotation')===curProduct; }); }
+// Firestore's serverTimestamp() sentinel can't be used *inside* array fields,
+// so activity entries use a client timestamp — fine for a feed that's just
+// display ordering, not a source of truth for anything financial.
+function appendActivity(grp, text){
+  const arr = (grp.activity||[]).concat([{text:text, at:Date.now()}]);
+  return arr.slice(-ACTIVITY_CAP);
 }
 
-// ---- circles ----
-async function loadCircles(){
-  const { data, error } = await sb
-    .from('circle_members')
-    .select('circle_id, circles(*)')
-    .eq('user_id', currentUser.id);
-  if(error){ toast(error.message); return; }
-  myCircles = (data||[]).map(r=>r.circles).filter(Boolean);
+// ---- Event delegation ----
+// Dynamic click targets read from data-* attributes rather than being built
+// into onclick="" strings. Building onclick="fn('"+value+"')" isn't safe even
+// after HTML-escaping the value: the browser decodes attribute entities before
+// the inline handler is parsed as JS, so a crafted value can still break out
+// of the string literal. Delegation avoids that class of bug entirely.
+function wireDelegatedEvents(){
+  document.getElementById('products-grid').addEventListener('click', function(e){
+    const card = e.target.closest('.product-card[data-id]');
+    if(card && card.dataset.live === '1') goProduct(card.dataset.id);
+    else if(card) toast('Coming soon');
+  });
+  document.getElementById('circles-list').addEventListener('click', function(e){
+    const card = e.target.closest('.circle-card[data-id]');
+    if(card) goCircle(card.dataset.id);
+  });
+  document.getElementById('circle-detail-body').addEventListener('click', function(e){
+    const payBtn = e.target.closest('[data-action="toggle-paid"]');
+    if(payBtn){ togglePaid(payBtn.dataset.uid); return; }
+    const removeBtn = e.target.closest('[data-action="remove-member"]');
+    if(removeBtn){ removeMember(removeBtn.dataset.uid); return; }
+    const shareLink = e.target.closest('[data-action="share-link"]');
+    if(shareLink){ shareInviteLink(shareLink.dataset.id); return; }
+    const addContrib = e.target.closest('[data-action="vb-add"]');
+    if(addContrib){ openModal('vb-contribute', {uid: addContrib.dataset.uid}); return; }
+    const sfIn = e.target.closest('[data-action="sf-in"]');
+    if(sfIn){ openModal('vb-social-in', {uid: sfIn.dataset.uid}); return; }
+    const sfOut = e.target.closest('[data-action="sf-out"]');
+    if(sfOut){ openModal('vb-social-out'); return; }
+  });
+}
+
+// ---- circles: one doc per circle/group at chipereganyu_groups/{code} ----
+// { type:'rotation'|'village_banking', name, contributionAmount, frequency,
+//   currency, createdBy, createdAt, memberUids:[uid], members:{uid:{name,color,joinedAt}},
+//   rotationOrder:[uid], status:'gathering'|'active', currentCycle:{...}|null,
+//   history:[...], activity:[{text,at}],
+//   vb:{ shareValue, cycleNumber, contributions:{uid:{shares,paid}},
+//        socialFundEnabled, socialFundAmount, socialFundBalance, socialFundLog:[...] } }
+//
+// IMPORTANT: every permission check in this file is a client-side convenience,
+// not a security boundary. The real boundary is firestore.rules — see that
+// file. It's a starting point, not a guarantee; test it before trusting it
+// with real money.
+
+function listenGroups(){
+  if(unsubChip) return;
+  unsubChip = db.collection('chipereganyu_groups')
+    .where('memberUids','array-contains',curUser.uid)
+    .onSnapshot(function(snap){
+      chipGroups = snap.docs.map(function(d){ return Object.assign({id:d.id}, d.data()); });
+      chipGroups.sort(function(a,b){ return (a.name||'').localeCompare(b.name||''); });
+      if(curProduct) renderDashboard();
+      const grp = activeGroup();
+      if(activeId && grp) renderCircleDetail(grp);
+      else if(activeId && !grp && curView==='circle') exitCircle();
+    }, function(e){ toast('Sync error: '+(e&&e.code||'unknown')); });
+}
+function stopListening(){ if(unsubChip){ unsubChip(); unsubChip=null; } chipGroups=[]; activeId=null; curProduct=null; curView=null; }
+
+// ---- navigation ----
+// These four are called by the router (applyRoute), not directly by clicks —
+// UI triggers go through goProducts()/goProduct()/goCircle() above so every
+// navigation is a real history entry.
+function showProducts(){
+  curProduct = null; activeId = null;
+  showView('products', renderProducts);
+}
+function openProduct(id){
+  curProduct = id; activeId = null;
+  const isVB = id === 'village_banking';
+  document.getElementById('btn-new-circle').innerHTML = icon('plus')+' New circle';
+  document.getElementById('circles-list-title').textContent = isVB ? 'Your village banks' : 'Your circles';
+  showView('dashboard', renderDashboard);
+}
+function showDashboard(){
+  activeId = null;
+  showView('dashboard', renderDashboard);
+}
+function openCircle(id){
+  activeId = id;
+  const g = activeGroup();
+  if(g) curProduct = g.type || 'rotation';
+  showView('circle', function(){
+    const grp = activeGroup();
+    document.getElementById('circle-detail-body').innerHTML = '';
+    if(grp) renderCircleDetail(grp);
+  });
+}
+
+function renderProducts(){
+  const el = document.getElementById('products-grid');
+  el.innerHTML = PRODUCTS.map(function(p){
+    return '<div class="product-card'+(p.live?'':' disabled')+'" data-id="'+p.id+'" data-live="'+(p.live?'1':'0')+'">'
+      + icon(p.icon)
+      + '<p class="product-name">'+escapeHtml(p.name)+'</p>'
+      + '<p class="product-tag">'+escapeHtml(p.tag)+'</p>'
+      + (p.live ? '' : '<span class="badge-soon">Coming soon</span>')
+      + '</div>';
+  }).join('');
+}
+
+function renderDashboard(){
+  renderStats();
   renderCircles();
+  renderActivitySection();
+}
+
+function renderStats(){
+  const el = document.getElementById('stats-grid');
+  const groups = productGroups();
+  let cards = [];
+  if(curProduct === 'village_banking'){
+    let totalSaved = 0, socialBalance = 0;
+    groups.forEach(function(g){
+      const c = (g.vb && g.vb.contributions) || {};
+      Object.keys(c).forEach(function(uid){ totalSaved += (c[uid].paid||0); });
+      socialBalance += (g.vb && g.vb.socialFundBalance) || 0;
+    });
+    cards = [
+      {icon:'piggy-bank', label:'Total in this cycle', value: fmtMWK(totalSaved)},
+      {icon:'handshake', label:'Social fund balance', value: fmtMWK(socialBalance)}
+    ];
+  } else {
+    let totalPaidOut = 0, nextDueDate = null, nextPayoutDate = null;
+    groups.forEach(function(g){
+      (g.history||[]).forEach(function(h){ totalPaidOut += (h.amount||0); });
+      if(g.currentCycle){
+        const cc = g.currentCycle;
+        const mine = cc.contributions && curUser && cc.contributions[curUser.uid];
+        if(mine && !mine.paid && (!nextDueDate || cc.dueDate < nextDueDate)) nextDueDate = cc.dueDate;
+        if(curUser && cc.recipientUid === curUser.uid && (!nextPayoutDate || cc.dueDate < nextPayoutDate)) nextPayoutDate = cc.dueDate;
+      }
+    });
+    cards = [
+      {icon:'trending-up', label:'Total paid out so far', value: fmtMWK(totalPaidOut)},
+      {icon:'calendar', label:'Your next contribution', value: nextDueDate || '—'},
+      {icon:'wallet', label:'Your next payout', value: nextPayoutDate || '—'}
+    ];
+  }
+  el.innerHTML = cards.map(function(c){
+    return '<div class="stat-card">'+icon(c.icon)+'<p class="stat-label">'+escapeHtml(c.label)+'</p><p class="stat-value">'+escapeHtml(c.value)+'</p></div>';
+  }).join('');
 }
 
 function renderCircles(){
   const el = document.getElementById('circles-list');
-  if(!myCircles.length){
-    el.innerHTML = '<div class="empty-state">No circles yet — start one or join with a code.</div>';
+  const groups = productGroups();
+  if(!groups.length){
+    el.innerHTML = '<div class="empty-state">'+icon('users')
+      +'<p>Start your first '+(curProduct==='village_banking'?'village bank':'savings circle')+' and invite family or friends in less than a minute.</p></div>';
     return;
   }
-  el.innerHTML = myCircles.map(c=>`
-    <div class="circle-card" onclick="openCircle('${c.id}')">
-      <div class="circle-badge"></div>
-      <div class="circle-info">
-        <p class="circle-name">${escapeHtml(c.name)}</p>
-        <p class="circle-sub">${c.currency} ${Number(c.contribution_amount).toLocaleString()} · ${c.frequency}</p>
-      </div>
-    </div>`).join('');
+  el.innerHTML = groups.map(function(c){
+    const isVB = (c.type||'rotation') === 'village_banking';
+    const sub = isVB
+      ? (c.currency+' '+Number(c.vb&&c.vb.shareValue||0).toLocaleString()+' / share · '+c.frequency)
+      : (c.currency+' '+Number(c.contributionAmount||0).toLocaleString()+' · '+c.frequency);
+    return '<div class="circle-card" data-id="'+escapeHtml(c.id)+'">'
+      +'<div class="circle-badge">'+icon(isVB?'piggy-bank':'rotate-cw')+'</div>'
+      +'<div class="circle-info"><p class="circle-name">'+escapeHtml(c.name)+'</p>'
+      +'<p class="circle-sub">'+escapeHtml(sub)+'</p></div></div>';
+  }).join('');
 }
 
-async function createCircle(name, amount, freq){
-  const code = genCode();
-  const { data, error } = await sb.from('circles')
-    .insert({ code, name, contribution_amount: amount, frequency: freq, created_by: currentUser.id })
-    .select().single();
-  if(error){ toast(error.message); return; }
-  const { error: memErr } = await sb.from('circle_members')
-    .insert({ circle_id: data.id, user_id: currentUser.id, display_name: displayName(), rotation_position: 0 });
-  if(memErr){ toast(memErr.message); return; }
-  closeModal();
-  toast(`Circle created — share code ${code}`);
-  loadCircles();
+function renderActivitySection(){
+  const el = document.getElementById('activity-section');
+  const groups = productGroups();
+  let items = [];
+  groups.forEach(function(g){
+    (g.activity||[]).forEach(function(a){ items.push({text: g.name+': '+a.text, at: a.at}); });
+  });
+  items.sort(function(a,b){ return (b.at||0)-(a.at||0); });
+  items = items.slice(0, 8);
+  if(!items.length){ el.innerHTML=''; return; }
+  el.innerHTML = '<p class="section-title">'+icon('activity')+' Recent activity</p>'
+    + items.map(function(it){
+        return '<div class="activity-item">'+icon('clock')
+          +'<div class="activity-text">'+escapeHtml(it.text)+'</div>'
+          +'<div class="activity-time">'+timeAgo(it.at)+'</div></div>';
+      }).join('');
 }
 
-async function joinCircle(code){
-  const { error } = await sb.rpc('join_circle', { p_code: code.trim().toUpperCase(), p_display_name: displayName() });
-  if(error){ toast(error.message); return; }
-  closeModal();
-  toast('Joined circle');
-  loadCircles();
+function shareInviteLink(code){
+  const url = location.origin + location.pathname + '?code=' + code;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(function(){ toast('Invite link copied'); })
+      .catch(function(){ toast('Code: '+code); });
+  } else {
+    toast('Code: '+code);
+  }
 }
 
-async function openCircle(id){
-  activeCircle = myCircles.find(c=>c.id===id);
-  document.getElementById('view-dashboard').classList.add('hidden');
-  document.getElementById('view-circle').classList.remove('hidden');
-  document.getElementById('circle-detail-name').textContent = activeCircle.name;
-  const { data, error } = await sb.from('circle_members').select('*').eq('circle_id', id);
-  if(error){ toast(error.message); return; }
-  document.getElementById('circle-detail-members').innerHTML = (data||[]).map(m=>`
-    <div class="member-row">
-      <div class="member-dot"></div>
-      <div class="member-name">${escapeHtml(m.display_name)}</div>
-      <div class="paid-tag">not yet wired to a cycle</div>
-    </div>`).join('');
+// ---- create / join ----
+function createCircle(type, name, extra){
+  if(!curUser) return;
+  const btn = document.getElementById('modal-submit');
+  if(btn) btn.disabled = true;
+  attemptCreate(0);
+
+  function attemptCreate(tries){
+    if(tries > 5){ toast('Could not generate a unique code — try again'); if(btn) btn.disabled = false; return; }
+    const code = genCode();
+    const ref = db.collection('chipereganyu_groups').doc(code);
+    // Small theoretical race between get() and set() (two people rolling the
+    // same 6-char code at once), acceptable given the ~1B-code space and low
+    // write volume; a transaction would close it fully if this ever needs to
+    // be airtight.
+    ref.get().then(function(existing){
+      if(existing.exists){ attemptCreate(tries+1); return; }
+      const myName = curUser.displayName || curUser.email;
+      const doc = {
+        type: type, name: name, frequency: extra.frequency, currency: 'MWK',
+        createdBy: curUser.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        memberUids: [curUser.uid], members: {}, rotationOrder: [curUser.uid],
+        status: 'gathering', currentCycle: null, history: [],
+        activity: [{text: myName+' created the circle', at: Date.now()}]
+      };
+      doc.members[curUser.uid] = { name: myName, color: MEMBER_COLORS[0], joinedAt: Date.now() };
+      if(type === 'rotation'){
+        doc.contributionAmount = extra.amount;
+      } else {
+        doc.vb = {
+          shareValue: extra.amount, cycleNumber: 1, contributions: {},
+          socialFundEnabled: !!extra.socialFundEnabled,
+          socialFundAmount: extra.socialFundAmount || 0,
+          socialFundBalance: 0, socialFundLog: []
+        };
+      }
+      ref.set(doc).then(function(){
+        closeModal(); curProduct = type;
+        toast('Circle created — share code '+code);
+        goCircle(code);
+      }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+    }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+  }
 }
 
-function showDashboard(){
-  document.getElementById('view-circle').classList.add('hidden');
-  document.getElementById('view-dashboard').classList.remove('hidden');
+function joinCircle(code){
+  if(!curUser) return;
+  const id = code.trim().toUpperCase();
+  const ref = db.collection('chipereganyu_groups').doc(id);
+  ref.get().then(function(doc){
+    if(!doc.exists){ toast('No circle found with that code'); return; }
+    const d = doc.data();
+    if((d.memberUids||[]).indexOf(curUser.uid) !== -1){ closeModal(); curProduct = d.type||'rotation'; goCircle(doc.id); toast('Already a member'); return; }
+    const myName = curUser.displayName || curUser.email;
+    const patch = {
+      memberUids: firebase.firestore.FieldValue.arrayUnion(curUser.uid),
+      rotationOrder: firebase.firestore.FieldValue.arrayUnion(curUser.uid),
+      activity: appendActivity(d, myName+' joined the circle')
+    };
+    patch['members.'+curUser.uid] = {
+      name: myName, color: MEMBER_COLORS[(d.memberUids||[]).length % MEMBER_COLORS.length], joinedAt: Date.now()
+    };
+    ref.update(patch).then(function(){
+      closeModal(); curProduct = d.type||'rotation';
+      toast('Joined '+(d.name||'circle'));
+      goCircle(doc.id);
+    }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
+  }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
 }
 
-function markPaid(){
-  toast('Wire this up once cycles are generated — see the schema for the contributions table.');
+// Leaving/removal is only allowed before a circle's first cycle starts. This
+// is a deliberate v1 simplification: once a rotation or a village-bank cycle
+// is active, membership locks, so there's never a question of what happens
+// to money someone already paid in. Mid-cycle exits with partial refunds are
+// a real feature but a genuinely different (and riskier) decision — punted
+// to a later version on purpose rather than guessed at here.
+function removeMember(uid){
+  const grp = activeGroup(); if(!grp) return;
+  if(grp.status !== 'gathering'){ toast('Members can only leave before the circle starts'); return; }
+  if(uid === grp.createdBy){ toast("The creator can't be removed"); return; }
+  const isSelf = curUser && uid === curUser.uid;
+  const isCreator = curUser && curUser.uid === grp.createdBy;
+  if(!isSelf && !isCreator){ toast('Only the creator can remove other members'); return; }
+  const name = (grp.members && grp.members[uid] && grp.members[uid].name) || 'A member';
+  if(!confirm(isSelf ? 'Leave this circle?' : 'Remove '+name+' from this circle?')) return;
+  const patch = {
+    memberUids: firebase.firestore.FieldValue.arrayRemove(uid),
+    rotationOrder: firebase.firestore.FieldValue.arrayRemove(uid),
+    activity: appendActivity(grp, isSelf ? (name+' left the circle') : (name+' was removed'))
+  };
+  patch['members.'+uid] = firebase.firestore.FieldValue.delete();
+  db.collection('chipereganyu_groups').doc(grp.id).update(patch).then(function(){
+    toast(isSelf ? 'You left the circle' : 'Member removed');
+    if(isSelf) exitCircle();
+  }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
 }
 
-function escapeHtml(s){
-  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ---- circle detail router ----
+function renderCircleDetail(grp){
+  document.getElementById('circle-detail-name').textContent = grp.name;
+  const isVB = (grp.type||'rotation') === 'village_banking';
+  if(isVB) renderVBDetail(grp); else renderRotationDetail(grp);
+}
+
+function memberListGathering(grp){
+  let h = '<p class="section-title">'+icon('users')+' Members</p>';
+  (grp.rotationOrder||[]).forEach(function(uid){
+    const m = (grp.members||{})[uid] || {name:'?'};
+    const isCreator = uid === grp.createdBy;
+    const canRemove = curUser && (curUser.uid === grp.createdBy || curUser.uid === uid) && !isCreator;
+    h += '<div class="member-row"><div class="member-dot" style="background:'+escapeHtml(m.color||'#ccc')+'"></div>'
+      +'<div class="member-name">'+escapeHtml(m.name)+(isCreator?'<span class="member-sub">Creator</span>':'')+'</div>'
+      +(canRemove ? '<button class="icon-btn" data-action="remove-member" data-uid="'+escapeHtml(uid)+'" title="Remove">'+icon('user-minus')+'</button>' : '')
+      +'</div>';
+  });
+  h += '<p style="font-size:13px;color:var(--muted);margin-top:12px">Share code <b>'+escapeHtml(grp.id)+'</b> with others to join, or</p>';
+  h += '<button class="btn-line" data-action="share-link" data-id="'+escapeHtml(grp.id)+'">'+icon('share-2')+' Copy invite link</button>';
+  return h;
+}
+
+// ---- rotation (Chipereganyu) ----
+function renderRotationDetail(grp){
+  const box = document.getElementById('circle-detail-body');
+  let h = '';
+  if(grp.status === 'gathering'){
+    h += memberListGathering(grp);
+    if(curUser && grp.createdBy===curUser.uid && (grp.rotationOrder||[]).length>=2){
+      h += '<button class="btn-paid" id="btn-start-rotation" onclick="startRotation()">'+icon('rotate-cw')+' Start rotation</button>';
+    } else if((grp.rotationOrder||[]).length<2){
+      h += '<p style="font-size:13px;color:var(--muted);margin-top:10px">Need at least 2 members to start.</p>';
+    }
+  } else {
+    const cc = grp.currentCycle;
+    const recipient = (grp.members||{})[cc.recipientUid] || {name:'?'};
+    const contributors = (grp.rotationOrder||[]).filter(function(u){ return u!==cc.recipientUid; });
+    const paidCount = contributors.filter(function(u){ return cc.contributions[u] && cc.contributions[u].paid; }).length;
+    const pct = contributors.length ? Math.round(100*paidCount/contributors.length) : 0;
+    const today = new Date().toISOString().split('T')[0];
+
+    h += '<p class="section-title">Cycle '+Number(cc.cycleNumber)+'</p>';
+    h += '<div class="circle-card" style="cursor:default"><div class="circle-badge">'+icon('rotate-cw')+'</div>'
+      +'<div class="circle-info"><p class="circle-name">'+escapeHtml(recipient.name)+'\u2019s turn</p>'
+      +'<p class="circle-sub">'+escapeHtml(grp.currency)+' '+Number(cc.amount).toLocaleString()+' due '+escapeHtml(cc.dueDate)+'</p></div></div>';
+
+    h += '<p class="progress-label"><span>'+paidCount+' of '+contributors.length+' paid</span><span>'+pct+'%</span></p>';
+    h += '<div class="progress-track"><div class="progress-fill" style="width:'+pct+'%"></div></div>';
+
+    h += '<p class="section-title">Contributions</p>';
+    contributors.forEach(function(uid){
+      const m = (grp.members||{})[uid] || {name:'?'};
+      const c = cc.contributions[uid] || {};
+      const paid = !!c.paid;
+      const late = !paid && cc.dueDate < today;
+      const can = curUser && (curUser.uid===uid || curUser.uid===cc.recipientUid);
+      const statusClass = paid ? 'paid' : (late ? 'late' : '');
+      const statusText = paid ? 'Paid' : (late ? 'Late' : 'Pending');
+      h += '<div class="member-row"'+(can?' data-action="toggle-paid" data-uid="'+escapeHtml(uid)+'" style="cursor:pointer"':'')+'>'
+        +'<div class="member-dot '+statusClass+'"></div>'
+        +'<div class="member-name">'+escapeHtml(m.name)+(c.reference?'<span class="member-sub">Ref: '+escapeHtml(c.reference)+'</span>':'')+'</div>'
+        +'<div class="paid-tag '+statusClass+'">'+statusText+'</div></div>';
+    });
+    const allPaid = contributors.length>0 && contributors.every(function(u){ return cc.contributions[u] && cc.contributions[u].paid; });
+    if(allPaid && curUser && (curUser.uid===cc.recipientUid || curUser.uid===grp.createdBy)){
+      h += '<button class="btn-paid" id="btn-confirm-payout" onclick="confirmPayout()">'+icon('check')+' Confirm payout</button>';
+    }
+  }
+  box.innerHTML = h;
+}
+
+function startRotation(){
+  const grp = activeGroup(); if(!grp) return;
+  if(!curUser || grp.createdBy !== curUser.uid){ toast('Only the group creator can start this'); return; }
+  if(!grp.rotationOrder || grp.rotationOrder.length < 2){ toast('You need at least 2 members to start'); return; }
+  const btn = document.getElementById('btn-start-rotation');
+  if(btn) btn.disabled = true;
+  const contributions = {};
+  grp.rotationOrder.forEach(function(u){ if(u !== grp.rotationOrder[0]) contributions[u] = {paid:false, paidAt:null, confirmedBy:null, reference:''}; });
+  db.collection('chipereganyu_groups').doc(grp.id).update({
+    status: 'active',
+    currentCycle: {
+      cycleNumber: 1, recipientUid: grp.rotationOrder[0], dueDate: nextDue(grp.frequency),
+      amount: grp.contributionAmount * (grp.rotationOrder.length - 1), contributions: contributions
+    },
+    activity: appendActivity(grp, 'Rotation started')
+  }).then(function(){ toast('Rotation started!'); })
+    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+}
+
+function togglePaid(uid){
+  const grp = activeGroup(); if(!grp || !grp.currentCycle) return;
+  const isSelf = curUser && uid === curUser.uid;
+  const isRecipient = curUser && curUser.uid === grp.currentCycle.recipientUid;
+  if(!isSelf && !isRecipient){ toast('Only you or the recipient can update this'); return; }
+  const cur = grp.currentCycle.contributions[uid] || {};
+  const next = !cur.paid;
+  if(next && isSelf){
+    // Marking yourself paid: offer an optional reference (e.g. an Airtel
+    // Money transaction ID) so the recipient has something to check against.
+    // This is a paper trail, not verification — real mobile money API
+    // integration is a separate, later piece of work.
+    openModal('mark-paid', {uid: uid});
+    return;
+  }
+  applyPaidUpdate(grp, uid, next, '');
+}
+function applyPaidUpdate(grp, uid, next, reference){
+  const m = (grp.members||{})[uid] || {name:'Someone'};
+  const patch = {};
+  patch['currentCycle.contributions.'+uid+'.paid'] = next;
+  patch['currentCycle.contributions.'+uid+'.paidAt'] = next ? firebase.firestore.FieldValue.serverTimestamp() : null;
+  patch['currentCycle.contributions.'+uid+'.confirmedBy'] = next ? curUser.uid : null;
+  patch['currentCycle.contributions.'+uid+'.reference'] = next ? (reference||'') : '';
+  patch['activity'] = appendActivity(grp, next ? (m.name+' marked as paid') : (m.name+' marked as unpaid'));
+  db.collection('chipereganyu_groups').doc(grp.id).update(patch).then(function(){
+    toast(next ? 'Marked as paid' : 'Marked as unpaid');
+  }).catch(function(e){ toast('Update failed: '+(e&&e.code||'error')); });
+}
+
+function confirmPayout(){
+  const grp = activeGroup(); if(!grp || !grp.currentCycle) return;
+  if(!curUser || (curUser.uid !== grp.currentCycle.recipientUid && curUser.uid !== grp.createdBy)){
+    toast('Only the recipient or the creator can confirm this payout'); return;
+  }
+  const btn = document.getElementById('btn-confirm-payout');
+  if(btn) btn.disabled = true;
+  const ref = db.collection('chipereganyu_groups').doc(grp.id);
+  db.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      if(!doc.exists) throw {code:'missing'};
+      const d = doc.data();
+      const cur = d.currentCycle;
+      if(!cur) throw {code:'no-cycle'};
+      const contributors = (d.rotationOrder||[]).filter(function(u){ return u !== cur.recipientUid; });
+      const allPaid = contributors.length>0 && contributors.every(function(u){ return cur.contributions[u] && cur.contributions[u].paid; });
+      if(!allPaid) throw {code:'not-all-paid'};
+      const idx = d.rotationOrder.indexOf(cur.recipientUid);
+      const nextRecipient = d.rotationOrder[(idx+1) % d.rotationOrder.length];
+      const newContributions = {};
+      d.rotationOrder.forEach(function(u){ if(u !== nextRecipient) newContributions[u] = {paid:false, paidAt:null, confirmedBy:null, reference:''}; });
+      const histEntry = { cycleNumber: cur.cycleNumber, recipientUid: cur.recipientUid, amount: cur.amount, date: new Date().toISOString().split('T')[0] };
+      const recipientName = (d.members[cur.recipientUid]||{}).name || 'Member';
+      tx.update(ref, {
+        history: firebase.firestore.FieldValue.arrayUnion(histEntry),
+        activity: appendActivity(d, 'Payout confirmed for '+recipientName),
+        currentCycle: {
+          cycleNumber: cur.cycleNumber + 1, recipientUid: nextRecipient, dueDate: nextDue(d.frequency),
+          amount: d.contributionAmount * (d.rotationOrder.length - 1), contributions: newContributions
+        }
+      });
+    });
+  }).then(function(){ toast('Payout confirmed!'); })
+    .catch(function(e){
+      if(e && e.code === 'not-all-paid') toast('Not everyone has paid yet');
+      else toast('Failed: '+(e&&e.code||'error'));
+      if(btn) btn.disabled = false;
+    });
+}
+
+// ---- Village Banking ----
+// v1 scope on purpose: shares-based savings plus an optional social/emergency
+// fund. No internal lending or interest yet — real Village Banking earns
+// members interest by lending their pooled savings back out, which needs
+// repayment tracking and default handling. Without that, a "share-out" here
+// is mathematically just returning each member what they put in — still a
+// real feature (it enforces the pooled-fund discipline and keeps a shared
+// record) but it's honest to say it's not the interest-earning version yet.
+function renderVBDetail(grp){
+  const box = document.getElementById('circle-detail-body');
+  const vb = grp.vb || {shareValue:0, contributions:{}, socialFundEnabled:false, socialFundBalance:0, socialFundLog:[]};
+  let h = '';
+  if(grp.status === 'gathering'){
+    h += memberListGathering(grp);
+    if(curUser && grp.createdBy===curUser.uid && (grp.rotationOrder||[]).length>=2){
+      h += '<button class="btn-paid" id="btn-start-vb" onclick="startVBCycle()">'+icon('piggy-bank')+' Start saving cycle</button>';
+    } else if((grp.rotationOrder||[]).length<2){
+      h += '<p style="font-size:13px;color:var(--muted);margin-top:10px">Need at least 2 members to start.</p>';
+    }
+  } else {
+    const contributions = vb.contributions || {};
+    let totalPool = 0, totalShares = 0;
+    (grp.rotationOrder||[]).forEach(function(uid){ const c=contributions[uid]||{}; totalPool += (c.paid||0); totalShares += (c.shares||0); });
+
+    h += '<p class="section-title">Cycle '+Number(vb.cycleNumber||1)+' · '+escapeHtml(grp.currency)+' '+Number(vb.shareValue).toLocaleString()+' per share</p>';
+    h += '<div class="circle-card" style="cursor:default"><div class="circle-badge">'+icon('piggy-bank')+'</div>'
+      +'<div class="circle-info"><p class="circle-name">'+fmtMWK(totalPool)+' saved so far</p>'
+      +'<p class="circle-sub">'+totalShares+' shares across '+(grp.rotationOrder||[]).length+' members</p></div></div>';
+
+    h += '<p class="section-title">'+icon('users')+' Members</p>';
+    (grp.rotationOrder||[]).forEach(function(uid){
+      const m = (grp.members||{})[uid] || {name:'?'};
+      const c = contributions[uid] || {shares:0, paid:0};
+      const canAdd = curUser && (curUser.uid === uid || curUser.uid === grp.createdBy);
+      h += '<div class="member-row"><div class="member-dot'+(c.shares>0?' paid':'')+'"></div>'
+        +'<div class="member-name">'+escapeHtml(m.name)+'<span class="member-sub">'+c.shares+' shares · '+fmtMWK(c.paid)+'</span></div>'
+        +(canAdd ? '<button class="icon-btn" data-action="vb-add" data-uid="'+escapeHtml(uid)+'" title="Record contribution">'+icon('plus')+'</button>' : '')
+        +'</div>';
+    });
+
+    if(vb.socialFundEnabled){
+      h += '<p class="section-title">'+icon('handshake')+' Social fund</p>';
+      h += '<div class="fund-box"><p class="stat-label">Balance</p><p class="fund-balance">'+fmtMWK(vb.socialFundBalance)+'</p>';
+      h += '<div class="actions-row"><button class="btn-secondary" data-action="sf-in" data-uid="'+escapeHtml(curUser?curUser.uid:'')+'">'+icon('plus')+' Contribute</button>';
+      if(curUser && curUser.uid === grp.createdBy){
+        h += '<button class="btn-secondary" data-action="sf-out">'+icon('handshake')+' Record payout</button>';
+      }
+      h += '</div>';
+      const log = (vb.socialFundLog||[]).slice(-5).reverse();
+      if(log.length){
+        h += '<div style="margin-top:12px">' + log.map(function(l){
+          return '<div class="fund-log-item"><span>'+escapeHtml(l.name||'')+(l.note?(' — '+escapeHtml(l.note)):'')+'</span><span>'+(l.kind==='out'?'-':'+')+fmtMWK(l.amount)+'</span></div>';
+        }).join('') + '</div>';
+      }
+      h += '</div>';
+    }
+
+    if(curUser && curUser.uid === grp.createdBy){
+      h += '<button class="btn-line" id="btn-shareout" onclick="shareOutVB()">'+icon('check')+' Share out this cycle</button>';
+      h += '<p class="field-hint">Distributes each member\u2019s own contributions back to them and starts a new cycle. Without loans in this version, the pool doesn\u2019t earn interest to share out — a share-out just returns what people put in.</p>';
+    }
+  }
+  box.innerHTML = h;
+}
+
+function startVBCycle(){
+  const grp = activeGroup(); if(!grp) return;
+  if(!curUser || grp.createdBy !== curUser.uid){ toast('Only the group creator can start this'); return; }
+  if(!grp.rotationOrder || grp.rotationOrder.length < 2){ toast('You need at least 2 members to start'); return; }
+  const btn = document.getElementById('btn-start-vb');
+  if(btn) btn.disabled = true;
+  db.collection('chipereganyu_groups').doc(grp.id).update({
+    status: 'active',
+    activity: appendActivity(grp, 'Saving cycle started')
+  }).then(function(){ toast('Cycle started!'); })
+    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+}
+
+function submitVbContribute(uid, shares){
+  const grp = activeGroup(); if(!grp) return;
+  shares = Number(shares);
+  if(!shares || shares<=0){ toast('Enter a valid number of shares'); return; }
+  const vb = grp.vb || {shareValue:0, contributions:{}};
+  const cur = (vb.contributions||{})[uid] || {shares:0, paid:0};
+  const amount = shares * (vb.shareValue||0);
+  const m = (grp.members||{})[uid] || {name:'Someone'};
+  const patch = {};
+  patch['vb.contributions.'+uid+'.shares'] = (cur.shares||0) + shares;
+  patch['vb.contributions.'+uid+'.paid'] = (cur.paid||0) + amount;
+  patch['activity'] = appendActivity(grp, m.name+' contributed '+fmtMWK(amount)+' ('+shares+' shares)');
+  db.collection('chipereganyu_groups').doc(grp.id).update(patch).then(function(){
+    closeModal(); toast('Contribution recorded');
+  }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
+}
+
+function submitSocialFundIn(uid, amount){
+  const grp = activeGroup(); if(!grp) return;
+  amount = Number(amount);
+  if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+  const m = (grp.members||{})[uid] || {name:'Someone'};
+  const vb = grp.vb || {socialFundBalance:0, socialFundLog:[]};
+  const log = (vb.socialFundLog||[]).concat([{name:m.name, amount:amount, kind:'in', note:'', at:Date.now()}]).slice(-30);
+  db.collection('chipereganyu_groups').doc(grp.id).update({
+    'vb.socialFundBalance': (vb.socialFundBalance||0) + amount,
+    'vb.socialFundLog': log,
+    activity: appendActivity(grp, m.name+' paid '+fmtMWK(amount)+' into the social fund')
+  }).then(function(){ closeModal(); toast('Added to social fund'); })
+    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
+}
+
+function submitSocialFundOut(amount, note){
+  const grp = activeGroup(); if(!grp) return;
+  if(!curUser || curUser.uid !== grp.createdBy){ toast('Only the creator can record a payout'); return; }
+  amount = Number(amount);
+  if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+  const vb = grp.vb || {socialFundBalance:0, socialFundLog:[]};
+  if(amount > (vb.socialFundBalance||0)){ toast('That\u2019s more than the fund balance'); return; }
+  const log = (vb.socialFundLog||[]).concat([{name:note||'Payout', amount:amount, kind:'out', note:note||'', at:Date.now()}]).slice(-30);
+  db.collection('chipereganyu_groups').doc(grp.id).update({
+    'vb.socialFundBalance': (vb.socialFundBalance||0) - amount,
+    'vb.socialFundLog': log,
+    activity: appendActivity(grp, 'Social fund paid out '+fmtMWK(amount)+(note?(' — '+note):''))
+  }).then(function(){ closeModal(); toast('Payout recorded'); })
+    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
+}
+
+function shareOutVB(){
+  const grp = activeGroup(); if(!grp) return;
+  if(!curUser || curUser.uid !== grp.createdBy){ toast('Only the creator can share out'); return; }
+  const vb = grp.vb || {contributions:{}, cycleNumber:1};
+  const contributions = vb.contributions || {};
+  const perMember = {};
+  let total = 0;
+  Object.keys(contributions).forEach(function(uid){ perMember[uid] = contributions[uid].paid||0; total += contributions[uid].paid||0; });
+  if(total <= 0){ toast('Nothing to share out yet'); return; }
+  if(!confirm('Share out '+fmtMWK(total)+' back to members and start cycle '+((vb.cycleNumber||1)+1)+'?')) return;
+  const btn = document.getElementById('btn-shareout');
+  if(btn) btn.disabled = true;
+  const histEntry = { type:'shareout', cycleNumber: vb.cycleNumber||1, totalPool: total, perMember: perMember, date: new Date().toISOString().split('T')[0] };
+  db.collection('chipereganyu_groups').doc(grp.id).update({
+    history: firebase.firestore.FieldValue.arrayUnion(histEntry),
+    activity: appendActivity(grp, 'Cycle '+(vb.cycleNumber||1)+' shared out — '+fmtMWK(total)),
+    'vb.cycleNumber': (vb.cycleNumber||1) + 1,
+    'vb.contributions': {}
+  }).then(function(){ toast('Shared out!'); })
+    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
 }
 
 // ---- modals ----
-function openModal(kind){
+function openModal(kind, ctx){
   const root = document.getElementById('modal-root');
+  const grp = activeGroup();
   if(kind==='create'){
-    root.innerHTML = `
-      <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-        <div class="modal-sheet">
-          <h3>New circle</h3>
-          <label class="field-label">Group name</label>
-          <input class="field-input" id="cg-name" placeholder="e.g. Family circle">
-          <label class="field-label">Contribution per member</label>
-          <input class="field-input" id="cg-amount" type="number" inputmode="numeric" placeholder="5000">
-          <label class="field-label">Frequency</label>
-          <div class="freq-toggle">
-            <button class="freq-btn on" id="freq-monthly" onclick="pickFreq('monthly')">Monthly</button>
-            <button class="freq-btn" id="freq-weekly" onclick="pickFreq('weekly')">Weekly</button>
-          </div>
-          <div class="modal-actions">
-            <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-            <button class="btn-primary" onclick="submitCreate()">Create</button>
-          </div>
-        </div>
-      </div>`;
-  } else {
-    root.innerHTML = `
-      <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
-        <div class="modal-sheet">
-          <h3>Join a circle</h3>
-          <label class="field-label">Circle code</label>
-          <input class="field-input" id="jg-code" placeholder="e.g. F3K9X" style="text-transform:uppercase">
-          <div class="modal-actions">
-            <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-            <button class="btn-primary" onclick="submitJoin()">Join</button>
-          </div>
-        </div>
-      </div>`;
+    const isVB = curProduct === 'village_banking';
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon(isVB?'piggy-bank':'rotate-cw')+' New '+(isVB?'village bank':'circle')+'</h3>'
+      +'<label class="field-label">Group name</label><input class="field-input" id="cg-name" placeholder="e.g. Family circle">'
+      +'<label class="field-label">'+(isVB?'Value per share (MWK)':'Contribution per member (MWK)')+'</label>'
+      +'<input class="field-input" id="cg-amount" type="number" inputmode="numeric" placeholder="5000">'
+      +'<label class="field-label">Frequency</label><div class="freq-toggle">'
+      +'<button class="freq-btn on" id="freq-monthly" onclick="pickFreq(\'monthly\')">Monthly</button>'
+      +'<button class="freq-btn" id="freq-weekly" onclick="pickFreq(\'weekly\')">Weekly</button></div>'
+      + (isVB ? (
+          '<div class="toggle-row"><label class="field-label">Enable social fund</label>'
+          +'<div class="switch" id="sf-toggle" onclick="toggleSocialFund()"></div></div>'
+          +'<div id="sf-amount-wrap" class="hidden"><label class="field-label">Suggested social fund contribution (MWK)</label>'
+          +'<input class="field-input" id="cg-sfamount" type="number" inputmode="numeric" placeholder="500"></div>'
+        ) : '')
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" id="modal-submit" onclick="submitCreate()">Create</button></div></div></div>';
+  } else if(kind==='join'){
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon('link')+' Join a circle</h3>'
+      +'<label class="field-label">Circle code</label><input class="field-input" id="jg-code" placeholder="e.g. F3K9XR" style="text-transform:uppercase">'
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" id="modal-submit" onclick="submitJoin()">Join</button></div></div></div>';
+  } else if(kind==='mark-paid'){
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon('check')+' Mark as paid</h3>'
+      +'<label class="field-label">Payment reference (optional)</label>'
+      +'<input class="field-input" id="mp-ref" placeholder="e.g. Airtel Money TXN ID">'
+      +'<p class="field-hint">Not verified automatically — just gives the recipient something to check against.</p>'
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" onclick="submitMarkPaid(\''+ctx.uid+'\')">Confirm</button></div></div></div>';
+  } else if(kind==='vb-contribute'){
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon('piggy-bank')+' Record contribution</h3>'
+      +'<label class="field-label">Number of shares bought</label>'
+      +'<input class="field-input" id="vb-shares" type="number" inputmode="numeric" placeholder="1">'
+      +'<p class="field-hint">'+ (grp?fmtMWK(grp.vb&&grp.vb.shareValue||0):'') +' per share</p>'
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" onclick="submitVbContribute(\''+ctx.uid+'\', document.getElementById(\'vb-shares\').value)">Save</button></div></div></div>';
+  } else if(kind==='vb-social-in'){
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon('handshake')+' Contribute to social fund</h3>'
+      +'<label class="field-label">Amount (MWK)</label>'
+      +'<input class="field-input" id="sf-amount" type="number" inputmode="numeric" placeholder="'+(grp&&grp.vb&&grp.vb.socialFundAmount?grp.vb.socialFundAmount:500)+'">'
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" onclick="submitSocialFundIn(\''+ctx.uid+'\', document.getElementById(\'sf-amount\').value)">Save</button></div></div></div>';
+  } else if(kind==='vb-social-out'){
+    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+      +'<div class="modal-sheet"><h3>'+icon('handshake')+' Record a social fund payout</h3>'
+      +'<label class="field-label">Amount (MWK)</label>'
+      +'<input class="field-input" id="sfo-amount" type="number" inputmode="numeric" placeholder="5000">'
+      +'<label class="field-label">Note (who / what for)</label>'
+      +'<input class="field-input" id="sfo-note" placeholder="e.g. Funeral support for the Banda family">'
+      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+      +'<button class="btn-primary" onclick="submitSocialFundOut(document.getElementById(\'sfo-amount\').value, document.getElementById(\'sfo-note\').value)">Save</button></div></div></div>';
   }
 }
 function closeModal(){ document.getElementById('modal-root').innerHTML=''; }
+window._freq = 'monthly';
+window._sfEnabled = false;
 function pickFreq(f){
   document.getElementById('freq-monthly').classList.toggle('on', f==='monthly');
   document.getElementById('freq-weekly').classList.toggle('on', f==='weekly');
-  document.getElementById('freq-monthly').dataset.picked = f==='monthly';
   window._freq = f;
 }
-window._freq = 'monthly';
+function toggleSocialFund(){
+  window._sfEnabled = !window._sfEnabled;
+  document.getElementById('sf-toggle').classList.toggle('on', window._sfEnabled);
+  document.getElementById('sf-amount-wrap').classList.toggle('hidden', !window._sfEnabled);
+}
 function submitCreate(){
   const name = document.getElementById('cg-name').value.trim();
   const amount = Number(document.getElementById('cg-amount').value);
   if(!name){ toast('Enter a group name'); return; }
   if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
-  createCircle(name, amount, window._freq);
+  const extra = { frequency: window._freq, amount: amount };
+  if(curProduct === 'village_banking'){
+    extra.socialFundEnabled = window._sfEnabled;
+    extra.socialFundAmount = window._sfEnabled ? Number((document.getElementById('cg-sfamount')||{}).value || 0) : 0;
+  }
+  createCircle(curProduct, name, extra);
 }
 function submitJoin(){
   const code = document.getElementById('jg-code').value.trim();
   if(!code){ toast('Enter a circle code'); return; }
+  const btn = document.getElementById('modal-submit');
+  if(btn) btn.disabled = true;
   joinCircle(code);
+}
+function submitMarkPaid(uid){
+  const ref = document.getElementById('mp-ref').value.trim();
+  const grp = activeGroup(); if(!grp) return;
+  closeModal();
+  applyPaidUpdate(grp, uid, true, ref);
 }
 
 init();
