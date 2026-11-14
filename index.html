@@ -429,7 +429,12 @@ function showView(viewName, renderFn){
 
 function signInWithGoogle(){
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider);
+  auth.signInWithRedirect(provider).catch(function(e){
+    const c = e && e.code || '';
+    if(c==='auth/unauthorized-domain') toast('This website is not authorised in Firebase yet (Authentication, Settings, Authorized domains).');
+    else if(c==='auth/operation-not-allowed') toast('Google sign-in is not switched on in Firebase (Authentication, Sign-in method).');
+    else toast('Sign-in failed: '+(c||'unknown error'));
+  });
 }
 function signOut(){ auth.signOut(); }
 
