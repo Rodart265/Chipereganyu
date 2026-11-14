@@ -153,6 +153,10 @@ main{padding:20px;max-width:520px;width:100%;margin:0 auto;height:100%}
 
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:11px 18px;border-radius:10px;font-size:13px;z-index:100;opacity:0;pointer-events:none;transition:opacity .2s;max-width:90vw;text-align:center}
 #toast.show{opacity:1}
+.act{background:#fff;border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap}
+.act.go{background:var(--teal);color:#fff;border-color:var(--teal)}
+.act.danger{color:var(--red)}
+.row-actions{display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -309,7 +313,7 @@ let curView = null; // 'products' | 'dashboard' | 'circle' — drives transition
 
 function init(){
   const params = new URLSearchParams(location.search);
-  if(params.get('code')) pendingJoinCode = params.get('code').toUpperCase();
+  if(params.get('code')) pendingJoinCode = params.get('code').toLowerCase();
 
   auth.getRedirectResult().catch(function(e){ if(e && e.message) toast(e.message); });
   auth.onAuthStateChanged(function(user){
@@ -458,7 +462,7 @@ function timeAgo(ms){
   return new Date(ms).toISOString().split('T')[0];
 }
 function activeGroup(){ return chipGroups.find(function(g){ return g.id===activeId; }) || null; }
-function productGroups(){ return chipGroups.filter(function(g){ return (g.type||'rotation')===curProduct; }); }
+function productGroups(){ return chipGroups.filter(function(g){ return (g.type||'rotation')===curProduct && g.status!=='closed'; }); }
 // Firestore's serverTimestamp() sentinel can't be used *inside* array fields,
 // so activity entries use a client timestamp — fine for a feed that's just
 // display ordering, not a source of truth for anything financial.
@@ -484,8 +488,8 @@ function wireDelegatedEvents(){
     if(card) goCircle(card.dataset.id);
   });
   document.getElementById('circle-detail-body').addEventListener('click', function(e){
-    const payBtn = e.target.closest('[data-action="toggle-paid"]');
-    if(payBtn){ togglePaid(payBtn.dataset.uid); return; }
+    const rotBtnEl = e.target.closest('[data-action^="rot-"]');
+    if(rotBtnEl){ rotAction(rotBtnEl.dataset.action, rotBtnEl.dataset); return; }
     const removeBtn = e.target.closest('[data-action="remove-member"]');
     if(removeBtn){ removeMember(removeBtn.dataset.uid); return; }
     const shareLink = e.target.closest('[data-action="share-link"]');
@@ -547,6 +551,7 @@ function showDashboard(){
   showView('dashboard', renderDashboard);
 }
 function openCircle(id){
+  if(activeId !== id) rotTab = 'round';
   activeId = id;
   const g = activeGroup();
   if(g) curProduct = g.type || 'rotation';
@@ -593,7 +598,7 @@ function renderStats(){
   } else {
     let totalPaidOut = 0, nextDueDate = null, nextPayoutDate = null;
     groups.forEach(function(g){
-      (g.history||[]).forEach(function(h){ totalPaidOut += (h.amount||0); });
+      (g.history||[]).forEach(function(h){ totalPaidOut += (h.collected!=null ? h.collected : (h.amount||0)); });
       if(g.currentCycle){
         const cc = g.currentCycle;
         const mine = cc.contributions && curUser && cc.contributions[curUser.uid];
@@ -661,73 +666,76 @@ function shareInviteLink(code){
 }
 
 // ---- create / join ----
+// Codes are lowercase, 8 characters, crypto-random: firestore.rules only accepts ids like that, and because a circle can
+// only be read by its members, the code is what lets someone join, so it must not be guessable.
+function randCode(){
+  const a=new Uint8Array(8); crypto.getRandomValues(a);
+  const cs='abcdefghijklmnopqrstuvwxyz0123456789'; let s='';
+  for(let i=0;i<a.length;i++) s+=cs[a[i]%cs.length];
+  return s;
+}
 function createCircle(type, name, extra){
   if(!curUser) return;
-  const btn = document.getElementById('modal-submit');
-  if(btn) btn.disabled = true;
-  attemptCreate(0);
-
-  function attemptCreate(tries){
-    if(tries > 5){ toast('Could not generate a unique code — try again'); if(btn) btn.disabled = false; return; }
-    const code = genCode();
-    const ref = db.collection('chipereganyu_groups').doc(code);
-    // Small theoretical race between get() and set() (two people rolling the
-    // same 6-char code at once), acceptable given the ~1B-code space and low
-    // write volume; a transaction would close it fully if this ever needs to
-    // be airtight.
-    ref.get().then(function(existing){
-      if(existing.exists){ attemptCreate(tries+1); return; }
-      const myName = curUser.displayName || curUser.email;
-      const doc = {
-        type: type, name: name, frequency: extra.frequency, currency: 'MWK',
-        createdBy: curUser.uid, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        memberUids: [curUser.uid], members: {}, rotationOrder: [curUser.uid],
-        status: 'gathering', currentCycle: null, history: [],
-        activity: [{text: myName+' created the circle', at: Date.now()}]
-      };
-      doc.members[curUser.uid] = { name: myName, color: MEMBER_COLORS[0], joinedAt: Date.now() };
-      if(type === 'rotation'){
-        doc.contributionAmount = extra.amount;
-      } else {
-        doc.vb = {
-          shareValue: extra.amount, cycleNumber: 1, contributions: {},
-          socialFundEnabled: !!extra.socialFundEnabled,
-          socialFundAmount: extra.socialFundAmount || 0,
-          socialFundBalance: 0, socialFundLog: []
-        };
-      }
-      ref.set(doc).then(function(){
-        closeModal(); curProduct = type;
-        toast('Circle created — share code '+code);
-        goCircle(code);
-      }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
-    }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+  const btn=document.getElementById('modal-submit'); if(btn) btn.disabled=true;
+  const code=randCode();
+  const myName=curUser.displayName||curUser.email;
+  const doc={
+    name:name, frequency:extra.frequency, currency:'MWK',
+    createdBy:curUser.uid, createdAt:FV.serverTimestamp(),
+    memberUids:[curUser.uid], members:{}, rotationOrder:[curUser.uid],
+    status:'gathering', currentCycle:null, history:[]
+  };
+  doc.members[curUser.uid]={name:myName, color:MEMBER_COLORS[0], joinedAt:Date.now()};
+  if(type==='rotation'){
+    doc.contributionAmount=extra.amount;
+    doc.dueDay=extra.dueDay;
+  } else {
+    doc.type='village_banking';
+    doc.contributionAmount=extra.amount;
+    doc.activity=[{text:myName+' created the circle', at:Date.now()}];
+    doc.vb={ shareValue:extra.amount, cycleNumber:1, contributions:{},
+      socialFundEnabled:!!extra.socialFundEnabled, socialFundAmount:extra.socialFundAmount||0, socialFundBalance:0, socialFundLog:[] };
   }
+  db.collection('chipereganyu_groups').doc(code).set(doc).then(function(){
+    closeModal(); curProduct=type; rotTab='round';
+    toast('Circle created. Share code '+code);
+    goCircle(code);
+  }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled=false; });
 }
 
 function joinCircle(code){
   if(!curUser) return;
-  const id = code.trim().toUpperCase();
-  const ref = db.collection('chipereganyu_groups').doc(id);
-  ref.get().then(function(doc){
-    if(!doc.exists){ toast('No circle found with that code'); return; }
-    const d = doc.data();
-    if((d.memberUids||[]).indexOf(curUser.uid) !== -1){ closeModal(); curProduct = d.type||'rotation'; goCircle(doc.id); toast('Already a member'); return; }
-    const myName = curUser.displayName || curUser.email;
-    const patch = {
-      memberUids: firebase.firestore.FieldValue.arrayUnion(curUser.uid),
-      rotationOrder: firebase.firestore.FieldValue.arrayUnion(curUser.uid),
-      activity: appendActivity(d, myName+' joined the circle')
-    };
-    patch['members.'+curUser.uid] = {
-      name: myName, color: MEMBER_COLORS[(d.memberUids||[]).length % MEMBER_COLORS.length], joinedAt: Date.now()
-    };
-    ref.update(patch).then(function(){
-      closeModal(); curProduct = d.type||'rotation';
-      toast('Joined '+(d.name||'circle'));
-      goCircle(doc.id);
-    }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
-  }).catch(function(e){ toast('Failed: '+(e&&e.code||'error')); });
+  const id=code.trim().toLowerCase();
+  if(!/^[a-z0-9]{6,20}$/.test(id)){ toast('That code does not look right'); const b=document.getElementById('modal-submit'); if(b) b.disabled=false; return; }
+  const ref=db.collection('chipereganyu_groups').doc(id);
+  const myName=curUser.displayName||curUser.email;
+  const done=function(){
+    ref.get().then(function(g){
+      const d=g.exists?g.data():{};
+      closeModal(); curProduct=d.type||'rotation'; rotTab='round';
+      goCircle(id);
+    }).catch(function(){ closeModal(); });
+  };
+  // A circle can only be READ by its members, so a joiner doesn't read it first. The write is the real check: the rules
+  // accept it only if the circle exists, is still gathering and has room, decided on the server at the moment of the write.
+  ref.get().catch(function(e){ if(e&&e.code==='permission-denied') return null; throw e; }).then(function(doc){
+    if(doc){
+      if(!doc.exists) throw {code:'not-found'};
+      const d=doc.data();
+      if((d.memberUids||[]).indexOf(curUser.uid)!==-1){ toast('You are already in this circle'); done(); return; }
+      if(d.status!=='gathering') throw {code:'already-started'};
+    }
+    const patch={ memberUids:FV.arrayUnion(curUser.uid), rotationOrder:FV.arrayUnion(curUser.uid) };
+    patch['members.'+curUser.uid]={name:myName, color:MEMBER_COLORS[Math.floor(Math.random()*MEMBER_COLORS.length)], joinedAt:Date.now()};
+    return ref.update(patch).then(function(){ toast('Joined!'); done(); })
+      .catch(function(e){ if(e&&(e.code==='permission-denied'||e.code==='not-found')) throw {code:'cannot-join'}; throw e; });
+  }).catch(function(e){
+    const b=document.getElementById('modal-submit'); if(b) b.disabled=false;
+    if(e&&e.code==='not-found') toast('No circle found with that code');
+    else if(e&&e.code==='already-started') toast('This circle has already started');
+    else if(e&&e.code==='cannot-join') toast('Could not join. Check the code, or the circle may have already started.');
+    else toast('Failed: '+(e&&e.code||'error'));
+  });
 }
 
 // Leaving/removal is only allowed before a circle's first cycle starts. This
@@ -781,142 +789,490 @@ function memberListGathering(grp){
 }
 
 // ---- rotation (Chipereganyu) ----
-function renderRotationDetail(grp){
-  const box = document.getElementById('circle-detail-body');
-  let h = '';
-  if(grp.status === 'gathering'){
-    h += memberListGathering(grp);
-    if(curUser && grp.createdBy===curUser.uid && (grp.rotationOrder||[]).length>=2){
-      h += '<button class="btn-paid" id="btn-start-rotation" onclick="startRotation()">'+icon('rotate-cw')+' Start rotation</button>';
-    } else if((grp.rotationOrder||[]).length<2){
-      h += '<p style="font-size:13px;color:var(--muted);margin-top:10px">Need at least 2 members to start.</p>';
-    }
-  } else {
-    const cc = grp.currentCycle;
-    const recipient = (grp.members||{})[cc.recipientUid] || {name:'?'};
-    const contributors = (grp.rotationOrder||[]).filter(function(u){ return u!==cc.recipientUid; });
-    const paidCount = contributors.filter(function(u){ return cc.contributions[u] && cc.contributions[u].paid; }).length;
-    const pct = contributors.length ? Math.round(100*paidCount/contributors.length) : 0;
-    const today = new Date().toISOString().split('T')[0];
-
-    h += '<p class="section-title">Cycle '+Number(cc.cycleNumber)+'</p>';
-    h += '<div class="circle-card" style="cursor:default"><div class="circle-badge">'+icon('rotate-cw')+'</div>'
-      +'<div class="circle-info"><p class="circle-name">'+escapeHtml(recipient.name)+'\u2019s turn</p>'
-      +'<p class="circle-sub">'+escapeHtml(grp.currency)+' '+Number(cc.amount).toLocaleString()+' due '+escapeHtml(cc.dueDate)+'</p></div></div>';
-
-    h += '<p class="progress-label"><span>'+paidCount+' of '+contributors.length+' paid</span><span>'+pct+'%</span></p>';
-    h += '<div class="progress-track"><div class="progress-fill" style="width:'+pct+'%"></div></div>';
-
-    h += '<p class="section-title">Contributions</p>';
-    contributors.forEach(function(uid){
-      const m = (grp.members||{})[uid] || {name:'?'};
-      const c = cc.contributions[uid] || {};
-      const paid = !!c.paid;
-      const late = !paid && cc.dueDate < today;
-      const can = curUser && (curUser.uid===uid || curUser.uid===cc.recipientUid);
-      const statusClass = paid ? 'paid' : (late ? 'late' : '');
-      const statusText = paid ? 'Paid' : (late ? 'Late' : 'Pending');
-      h += '<div class="member-row"'+(can?' data-action="toggle-paid" data-uid="'+escapeHtml(uid)+'" style="cursor:pointer"':'')+'>'
-        +'<div class="member-dot '+statusClass+'"></div>'
-        +'<div class="member-name">'+escapeHtml(m.name)+(c.reference?'<span class="member-sub">Ref: '+escapeHtml(c.reference)+'</span>':'')+'</div>'
-        +'<div class="paid-tag '+statusClass+'">'+statusText+'</div></div>';
+// Same rules and flow as Chipereganyu inside Bajeti Yanga: laps, "I've sent it" -> "received" confirmation,
+// leaving mid-round, lap completion, another lap, close. Writes only the fields firestore.rules allows.
+function chipIso(y,m,d){ return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'); }   // m is 1-12
+function chipDaysBetween(a,b){   // whole days from date a to date b ('YYYY-MM-DD'); negative if b is earlier
+  const pa=a.split('-').map(Number), pb=b.split('-').map(Number);
+  return Math.round((Date.UTC(pb[0],pb[1]-1,pb[2])-Date.UTC(pa[0],pa[1]-1,pa[2]))/86400000);
+}
+function chipAddDays(s,n){
+  const p=s.split('-').map(Number), d=new Date(Date.UTC(p[0],p[1]-1,p[2]+n));
+  return chipIso(d.getUTCFullYear(),d.getUTCMonth()+1,d.getUTCDate());
+}
+function chipMonthDate(y,m0,day){   // m0 is 0-based and may run past 11; the day is clamped (31 Jan + 1 month -> 28/29 Feb)
+  const d=new Date(Date.UTC(y,m0,1)), yy=d.getUTCFullYear(), mm=d.getUTCMonth();
+  const dim=new Date(Date.UTC(yy,mm+1,0)).getUTCDate();
+  return chipIso(yy,mm+1,Math.min(day,dim));
+}
+// Due date of the first round. `anchor` is the pay day chosen at creation (monthly: day 1-31, weekly: weekday 0=Sun..6=Sat).
+// With an anchor the first due date is the next such day, today included. Circles made before pay days existed have no
+// anchor: they keep the old behaviour (one month, or one week, from today).
+function chipFirstDue(freq,anchor,todayStr){
+  const p=todayStr.split('-').map(Number);
+  if(freq==='weekly'){
+    if(anchor==null) return chipAddDays(todayStr,7);
+    const wd=new Date(Date.UTC(p[0],p[1]-1,p[2])).getUTCDay();
+    return chipAddDays(todayStr,(Number(anchor)-wd+7)%7);
+  }
+  if(anchor==null) return chipMonthDate(p[0],p[1]-1+1,p[2]);
+  const day=Math.min(31,Math.max(1,Math.floor(Number(anchor))));
+  const c=chipMonthDate(p[0],p[1]-1,day);
+  return c<todayStr?chipMonthDate(p[0],p[1],day):c;
+}
+// Due date of the next round: keeps the rhythm by stepping on from the PREVIOUS due date (not from the day the payout was
+// confirmed), and skips dates that have already passed so a late confirmation does not start the next round overdue.
+function chipNextDue(freq,prevDue,anchor,todayStr){
+  if(!prevDue) return chipFirstDue(freq,anchor,todayStr);
+  const pp=prevDue.split('-').map(Number);
+  const day=(anchor!=null&&anchor>=1&&anchor<=31)?Math.floor(anchor):pp[2];
+  let n=0, d=prevDue;
+  do{
+    n++;
+    d=freq==='weekly'?chipAddDays(prevDue,7*n):chipMonthDate(pp[0],pp[1]-1+n,day);
+  }while(d<todayStr&&n<600);
+  return d;
+}
+function chipOverdueDays(dueDate,todayStr){ return dueDate?Math.max(0,chipDaysBetween(dueDate,todayStr)):0; }
+// Which lap (one full turn of the rotation) each history entry belongs to, and which lap the current round is in.
+// New entries carry their lap; older entries do not, so for those a new lap starts whenever a recipient comes round again.
+function chipLapInfo(grp){
+  const hist=(grp.history||[]).slice().sort(function(a,b){ return (a.cycleNumber||0)-(b.cycleNumber||0); });
+  let lap=1, seen={};
+  const entries=hist.map(function(h){
+    if(h.lap){ if(h.lap!==lap){ lap=h.lap; seen={}; } }
+    else if(seen[h.recipientUid]){ lap++; seen={}; }
+    seen[h.recipientUid]=true;
+    return {h:h,lap:lap};
+  });
+  const cc=grp.currentCycle;
+  let cur=lap;
+  if(cc){ if(cc.lap) cur=cc.lap; else if(seen[cc.recipientUid]) cur=lap+1; }
+  const got=entries.filter(function(e){ return e.lap===cur; }).map(function(e){ return e.h.recipientUid; });
+  return {lap:cur,entries:entries,receivedThisLap:got};
+}
+// Next in the rotation order who has not yet received this lap (the current recipient counts as received).
+// null means everyone has had their turn: the lap is complete.
+function chipNextRecipient(grp,info){
+  const cc=grp.currentCycle; if(!cc) return null;
+  const got={}; info.receivedThisLap.forEach(function(u){ got[u]=true; }); got[cc.recipientUid]=true;
+  const order=grp.rotationOrder||[];
+  for(let i=0;i<order.length;i++){ if(!got[order[i]]) return order[i]; }
+  return null;
+}
+// The money side of the current round. `received` = confirmed by the recipient/admin, `sent` = the contributor says they
+// sent it but it is not confirmed yet. Members who paid and then left (departedPaid) still count toward `collected`.
+// `goneUnpaid` = members who left before paying: that money will never arrive, so the round can only be short.
+function chipRoundSummary(grp){
+  const cc=grp.currentCycle; if(!cc) return null;
+  const amt=Number(grp.contributionAmount)||0, con=cc.contributions||{};
+  const contributors=(grp.rotationOrder||[]).filter(function(u){ return u!==cc.recipientUid; });
+  const received=contributors.filter(function(u){ return con[u]&&con[u].paid; });
+  const sent=contributors.filter(function(u){ return con[u]&&!con[u].paid&&con[u].sent; });
+  const pending=contributors.filter(function(u){ return !(con[u]&&(con[u].paid||con[u].sent)); });
+  const departedPaid=Object.keys(cc.departedPaid||{});
+  const expected=Number(cc.amount)||0;
+  const collected=Math.min(expected,(received.length+departedPaid.length)*amt);
+  const slots=amt>0?Math.round(expected/amt):contributors.length;
+  const goneUnpaid=Math.max(0,slots-contributors.length-departedPaid.length);
+  return {contributors:contributors,received:received,sent:sent,pending:pending,departedPaid:departedPaid,
+    expected:expected,collected:collected,goneUnpaid:goneUnpaid,shortAmount:goneUnpaid*amt,
+    outstanding:(contributors.length-received.length)*amt,
+    allReceived:contributors.length>0&&received.length===contributors.length,
+    pct:expected>0?Math.min(1,collected/expected):0};
+}
+// <<< end chip pure helpers <<<
+function today(){ const d=new Date(); return chipIso(d.getFullYear(),d.getMonth()+1,d.getDate()); }
+function fmtDate(s){ if(!s) return ''; const p=s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }
+let rotTab = 'round';
+const FV = firebase.firestore.FieldValue;
+function rotErr(e){
+  if(e && e.code==='stale-cycle') return 'This round has already moved on. Please refresh.';
+  if(e && e.code==='permission-denied') return 'Not allowed. The circle may have changed, so refresh and try again.';
+  return 'Failed: '+(e&&e.code||'error');
+}
+function appConfirm(msg, onOk, okLabel, danger){
+  window._confirmCb = onOk;
+  document.getElementById('modal-root').innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
+    +'<div class="modal-sheet"><p style="font-size:14px;line-height:1.6;margin:0">'+escapeHtml(msg)+'</p>'
+    +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
+    +'<button class="btn-primary"'+(danger?' style="background:var(--red)"':'')+' onclick="closeModal();if(window._confirmCb)window._confirmCb()">'+escapeHtml(okLabel||'Confirm')+'</button></div></div></div>';
+}
+function rotBtn(action, label, cls, data){
+  let a=''; Object.keys(data||{}).forEach(function(k){ a+=' data-'+k+'="'+escapeHtml(String(data[k]))+'"'; });
+  return '<button class="act '+(cls||'')+'" data-action="'+action+'"'+a+'>'+escapeHtml(label)+'</button>';
+}
+function chipFreshContributions(order, recipientUid){
+  const c={}; order.forEach(function(u){ if(u!==recipientUid) c[u]={paid:false,paidAt:null,confirmedBy:null}; }); return c;
+}
+// Writes `patch` only if the round on screen is still the current one (a transaction re-reads first). Offline a transaction
+// cannot run, so fall back to a plain update that Firestore queues.
+function chipCycleUpdate(grpId, cycleNumber, patch){
+  const gRef=db.collection('chipereganyu_groups').doc(grpId);
+  return db.runTransaction(function(tx){
+    return tx.get(gRef).then(function(snap){
+      const gd=snap.exists?snap.data():null;
+      if(!gd || !gd.currentCycle || gd.currentCycle.cycleNumber!==cycleNumber) throw {code:'stale-cycle'};
+      tx.update(gRef,patch);
     });
-    const allPaid = contributors.length>0 && contributors.every(function(u){ return cc.contributions[u] && cc.contributions[u].paid; });
-    if(allPaid && curUser && (curUser.uid===cc.recipientUid || curUser.uid===grp.createdBy)){
-      h += '<button class="btn-paid" id="btn-confirm-payout" onclick="confirmPayout()">'+icon('check')+' Confirm payout</button>';
-    }
+  }).catch(function(e){ if(e && e.code==='unavailable') return gRef.update(patch); throw e; });
+}
+// What to write when a member leaves or is removed. Whoever already paid this round keeps counting (departedPaid).
+function chipDeparturePatch(grp, uid){
+  const patch={ memberUids: FV.arrayRemove(uid), rotationOrder: FV.arrayRemove(uid) };
+  patch['members.'+uid]=FV.delete();
+  if(grp.status==='active' && grp.currentCycle){
+    const entry=(grp.currentCycle.contributions||{})[uid];
+    patch['currentCycle.contributions.'+uid]=FV.delete();
+    if(entry && entry.paid) patch['currentCycle.departedPaid.'+uid]={name:String(((grp.members[uid]||{}).name)||'').slice(0,40), paid:true};
   }
-  box.innerHTML = h;
+  return patch;
+}
+function chipReceivedMidLap(grp, uid){ return grp.status==='active' && chipLapInfo(grp).receivedThisLap.indexOf(uid)>-1; }
+
+function rotAction(action, d){
+  if(action==='rot-tab'){ rotTab=d.tab; const g=activeGroup(); if(g) renderCircleDetail(g); return; }
+  if(action==='rot-start') return rotStart();
+  if(action==='rot-sent') return rotSent(true);
+  if(action==='rot-unsend') return rotSent(false);
+  if(action==='rot-recv') return rotRecv(d.uid, d.on==='1');
+  if(action==='rot-remind') return rotRemind(d.uid);
+  if(action==='rot-confirm') return rotConfirmClick();
+  if(action==='rot-force') return rotForcePrompt();
+  if(action==='rot-newlap') return rotNewLap();
+  if(action==='rot-close') return rotClose();
+  if(action==='rot-moveup') return rotMoveUp(d.uid);
+  if(action==='rot-remove') return rotRemove(d.uid);
+  if(action==='rot-leave') return rotLeave();
+  if(action==='rot-delete') return rotDelete();
+  if(action==='rot-admin') return rotMakeAdmin(d.uid);
 }
 
-function startRotation(){
-  const grp = activeGroup(); if(!grp) return;
-  if(!curUser || grp.createdBy !== curUser.uid){ toast('Only the group creator can start this'); return; }
-  if(!grp.rotationOrder || grp.rotationOrder.length < 2){ toast('You need at least 2 members to start'); return; }
-  const btn = document.getElementById('btn-start-rotation');
-  if(btn) btn.disabled = true;
-  const contributions = {};
-  grp.rotationOrder.forEach(function(u){ if(u !== grp.rotationOrder[0]) contributions[u] = {paid:false, paidAt:null, confirmedBy:null, reference:''}; });
-  db.collection('chipereganyu_groups').doc(grp.id).update({
-    status: 'active',
-    currentCycle: {
-      cycleNumber: 1, recipientUid: grp.rotationOrder[0], dueDate: nextDue(grp.frequency),
-      amount: grp.contributionAmount * (grp.rotationOrder.length - 1), contributions: contributions
-    },
-    activity: appendActivity(grp, 'Rotation started')
-  }).then(function(){ toast('Rotation started!'); })
-    .catch(function(e){ toast('Failed: '+(e&&e.code||'error')); if(btn) btn.disabled = false; });
+function rotStart(){
+  const grp=activeGroup(); if(!grp) return;
+  if(!curUser||grp.createdBy!==curUser.uid){ toast('Only the group admin can start this'); return; }
+  if((grp.rotationOrder||[]).length<2){ toast('You need at least 2 members to start'); return; }
+  const ref=db.collection('chipereganyu_groups').doc(grp.id);
+  db.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      if(!doc.exists) throw {code:'not-found'};
+      const d=doc.data();
+      if(d.status!=='gathering') throw {code:'already-started'};
+      const order=d.rotationOrder||[];
+      if(order.length<2) throw {code:'too-few'};
+      tx.update(ref,{ status:'active', currentCycle:{
+        cycleNumber:1, lap:1, recipientUid:order[0],
+        dueDate:chipFirstDue(d.frequency, d.dueDay==null?null:d.dueDay, today()),
+        amount:d.contributionAmount*(order.length-1),
+        contributions:chipFreshContributions(order, order[0]) } });
+    });
+  }).then(function(){ rotTab='round'; toast('Chipereganyu started!'); })
+    .catch(function(e){ toast(e&&e.code==='already-started'?'This group has already started':rotErr(e)); });
 }
-
-function togglePaid(uid){
-  const grp = activeGroup(); if(!grp || !grp.currentCycle) return;
-  const isSelf = curUser && uid === curUser.uid;
-  const isRecipient = curUser && curUser.uid === grp.currentCycle.recipientUid;
-  if(!isSelf && !isRecipient){ toast('Only you or the recipient can update this'); return; }
-  const cur = grp.currentCycle.contributions[uid] || {};
-  const next = !cur.paid;
-  if(next && isSelf){
-    // Marking yourself paid: offer an optional reference (e.g. an Airtel
-    // Money transaction ID) so the recipient has something to check against.
-    // This is a paper trail, not verification — real mobile money API
-    // integration is a separate, later piece of work.
-    openModal('mark-paid', {uid: uid});
-    return;
-  }
-  applyPaidUpdate(grp, uid, next, '');
+function rotSent(on){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle||!curUser) return;
+  const cc=grp.currentCycle, uid=curUser.uid, e0=cc.contributions[uid]; if(!e0||e0.paid) return;
+  const patch={};
+  patch['currentCycle.contributions.'+uid+'.sent']=!!on;
+  patch['currentCycle.contributions.'+uid+'.sentAt']=on?FV.serverTimestamp():null;
+  chipCycleUpdate(grp.id, cc.cycleNumber, patch)
+    .then(function(){ toast(on?'Marked as sent. The recipient will confirm it arrived.':'Taken back'); })
+    .catch(function(e){ toast(rotErr(e)); });
 }
-function applyPaidUpdate(grp, uid, next, reference){
-  const m = (grp.members||{})[uid] || {name:'Someone'};
-  const patch = {};
-  patch['currentCycle.contributions.'+uid+'.paid'] = next;
-  patch['currentCycle.contributions.'+uid+'.paidAt'] = next ? firebase.firestore.FieldValue.serverTimestamp() : null;
-  patch['currentCycle.contributions.'+uid+'.confirmedBy'] = next ? curUser.uid : null;
-  patch['currentCycle.contributions.'+uid+'.reference'] = next ? (reference||'') : '';
-  patch['activity'] = appendActivity(grp, next ? (m.name+' marked as paid') : (m.name+' marked as unpaid'));
-  db.collection('chipereganyu_groups').doc(grp.id).update(patch).then(function(){
-    toast(next ? 'Marked as paid' : 'Marked as unpaid');
-  }).catch(function(e){ toast('Update failed: '+(e&&e.code||'error')); });
+function rotRecv(uid, on){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle||!curUser) return;
+  const cc=grp.currentCycle;
+  if(curUser.uid!==cc.recipientUid && curUser.uid!==grp.createdBy){ toast('Only the recipient or the admin can confirm this'); return; }
+  if(!cc.contributions[uid]) return;
+  const patch={};
+  patch['currentCycle.contributions.'+uid+'.paid']=!!on;
+  patch['currentCycle.contributions.'+uid+'.paidAt']=on?FV.serverTimestamp():null;
+  patch['currentCycle.contributions.'+uid+'.confirmedBy']=on?curUser.uid:null;
+  chipCycleUpdate(grp.id, cc.cycleNumber, patch)
+    .then(function(){ toast(on?'Marked as received':'Received mark removed'); })
+    .catch(function(e){ toast(rotErr(e)); });
 }
-
-function confirmPayout(){
-  const grp = activeGroup(); if(!grp || !grp.currentCycle) return;
-  if(!curUser || (curUser.uid !== grp.currentCycle.recipientUid && curUser.uid !== grp.createdBy)){
-    toast('Only the recipient or the creator can confirm this payout'); return;
-  }
-  const btn = document.getElementById('btn-confirm-payout');
-  if(btn) btn.disabled = true;
-  const ref = db.collection('chipereganyu_groups').doc(grp.id);
+function rotRemind(uid){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle) return;
+  const nm=(((grp.members[uid]||{}).name)||'').split(' ')[0];
+  const t='Hi '+nm+', a reminder: your Chipereganyu contribution of '+fmtMWK(grp.contributionAmount)+' for “'+grp.name+'” is due '+fmtDate(grp.currentCycle.dueDate)+'.';
+  window.open('https://wa.me/?text='+encodeURIComponent(t),'_blank');
+}
+function rotConfirmClick(){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle) return;
+  const sm=chipRoundSummary(grp);
+  if(sm.goneUnpaid>0){
+    appConfirm('This round is short by '+fmtMWK(sm.shortAmount)+' because '+sm.goneUnpaid+(sm.goneUnpaid===1?' member left':' members left')+' before paying. The recipient gets '+fmtMWK(sm.collected)+' of '+fmtMWK(sm.expected)+'. Confirm the payout?',
+      function(){ rotConfirmPayout(false); }, 'Confirm payout', false);
+  } else rotConfirmPayout(false);
+}
+function rotForcePrompt(){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle||!curUser||curUser.uid!==grp.createdBy) return;
+  const sm=chipRoundSummary(grp);
+  const names=sm.contributors.filter(function(u){ return sm.received.indexOf(u)<0; }).map(function(u){ return (grp.members[u]||{}).name||'?'; }).join(', ');
+  appConfirm('Not confirmed yet: '+names+'. Confirming now records this round as short ('+fmtMWK(sm.collected)+' of '+fmtMWK(sm.expected)+') and can’t be undone. Continue anyway?',
+    function(){ rotConfirmPayout(true); }, 'Force confirm', true);
+}
+function rotConfirmPayout(force){
+  const grp=activeGroup(); if(!grp||!grp.currentCycle) return;
+  const cc=grp.currentCycle;
+  if(!curUser || (curUser.uid!==cc.recipientUid && curUser.uid!==grp.createdBy)){ toast('Only the recipient or the admin can confirm this payout'); return; }
+  if(force && curUser.uid!==grp.createdBy){ toast('Only the admin can force confirm'); return; }
+  const ref=db.collection('chipereganyu_groups').doc(grp.id);
+  let finished=false;
   db.runTransaction(function(tx){
     return tx.get(ref).then(function(doc){
       if(!doc.exists) throw {code:'missing'};
-      const d = doc.data();
-      const cur = d.currentCycle;
+      const d=doc.data(), cur=d.currentCycle;
       if(!cur) throw {code:'no-cycle'};
-      const contributors = (d.rotationOrder||[]).filter(function(u){ return u !== cur.recipientUid; });
-      const allPaid = contributors.length>0 && contributors.every(function(u){ return cur.contributions[u] && cur.contributions[u].paid; });
-      if(!allPaid) throw {code:'not-all-paid'};
-      const idx = d.rotationOrder.indexOf(cur.recipientUid);
-      const nextRecipient = d.rotationOrder[(idx+1) % d.rotationOrder.length];
-      const newContributions = {};
-      d.rotationOrder.forEach(function(u){ if(u !== nextRecipient) newContributions[u] = {paid:false, paidAt:null, confirmedBy:null, reference:''}; });
-      const histEntry = { cycleNumber: cur.cycleNumber, recipientUid: cur.recipientUid, amount: cur.amount, date: new Date().toISOString().split('T')[0] };
-      const recipientName = (d.members[cur.recipientUid]||{}).name || 'Member';
-      tx.update(ref, {
-        history: firebase.firestore.FieldValue.arrayUnion(histEntry),
-        activity: appendActivity(d, 'Payout confirmed for '+recipientName),
-        currentCycle: {
-          cycleNumber: cur.cycleNumber + 1, recipientUid: nextRecipient, dueDate: nextDue(d.frequency),
-          amount: d.contributionAmount * (d.rotationOrder.length - 1), contributions: newContributions
-        }
-      });
+      if(cur.cycleNumber!==cc.cycleNumber) throw {code:'stale-cycle'};
+      const sm=chipRoundSummary(d);
+      if(!sm.allReceived && !force) throw {code:'not-all-paid'};
+      const info=chipLapInfo(d);
+      const nextUid=chipNextRecipient(d,info);
+      const rm=d.members&&d.members[cur.recipientUid];
+      const hist={cycleNumber:cur.cycleNumber, lap:info.lap, recipientUid:cur.recipientUid, recipientName:(rm&&rm.name)||'', amount:cur.amount, collected:sm.collected, date:today(), contributions:cur.contributions};
+      if(sm.departedPaid.length) hist.departed=cur.departedPaid;
+      if(nextUid===null){
+        finished=true;
+        tx.update(ref,{ history:FV.arrayUnion(hist), status:'completed', currentCycle:null });
+      } else {
+        tx.update(ref,{ history:FV.arrayUnion(hist), currentCycle:{
+          cycleNumber:cur.cycleNumber+1, lap:info.lap, recipientUid:nextUid,
+          dueDate:chipNextDue(d.frequency, cur.dueDate, d.dueDay==null?null:d.dueDay, today()),
+          amount:d.contributionAmount*(d.rotationOrder.length-1),
+          contributions:chipFreshContributions(d.rotationOrder, nextUid) } });
+      }
     });
-  }).then(function(){ toast('Payout confirmed!'); })
+  }).then(function(){ toast(finished?'Payout confirmed! Everyone has had a turn, so this lap is complete.':'Payout confirmed!'); })
     .catch(function(e){
-      if(e && e.code === 'not-all-paid') toast('Not everyone has paid yet');
-      else toast('Failed: '+(e&&e.code||'error'));
-      if(btn) btn.disabled = false;
+      if(e&&e.code==='not-all-paid') toast('Not everyone is confirmed as paid yet'); else toast(rotErr(e));
     });
 }
+function rotNewLap(){
+  const grp=activeGroup(); if(!grp) return;
+  if(!curUser||grp.createdBy!==curUser.uid){ toast('Only the group admin can start this'); return; }
+  appConfirm('Start another lap with the same members, in the order shown?', function(){
+    const ref=db.collection('chipereganyu_groups').doc(grp.id);
+    db.runTransaction(function(tx){
+      return tx.get(ref).then(function(doc){
+        if(!doc.exists) throw {code:'not-found'};
+        const d=doc.data();
+        if(d.status!=='completed') throw {code:'not-completed'};
+        const order=d.rotationOrder||[];
+        if(order.length<2) throw {code:'too-few'};
+        const info=chipLapInfo(d);
+        tx.update(ref,{ status:'active', currentCycle:{
+          cycleNumber:(d.history||[]).length+1, lap:info.lap+1, recipientUid:order[0],
+          dueDate:chipFirstDue(d.frequency, d.dueDay==null?null:d.dueDay, today()),
+          amount:d.contributionAmount*(order.length-1),
+          contributions:chipFreshContributions(order, order[0]) } });
+      });
+    }).then(function(){ rotTab='round'; toast('New lap started!'); })
+      .catch(function(e){ toast(e&&e.code==='too-few'?'You need at least 2 members to start':rotErr(e)); });
+  }, 'Start lap', false);
+}
+function rotClose(){
+  const grp=activeGroup(); if(!grp||!curUser||grp.createdBy!==curUser.uid) return;
+  appConfirm('Close this circle? The history stays, but it leaves everyone’s list and can’t be restarted.', function(){
+    db.collection('chipereganyu_groups').doc(grp.id).update({status:'closed'})
+      .then(function(){ toast('Circle closed'); exitCircle(); })
+      .catch(function(e){ toast(rotErr(e)); });
+  }, 'Close circle', true);
+}
+function rotMoveUp(uid){
+  const grp=activeGroup(); if(!grp) return;
+  if(!curUser||grp.createdBy!==curUser.uid){ toast('Only the admin can reorder the rotation'); return; }
+  const order=(grp.rotationOrder||[]).slice(), idx=order.indexOf(uid);
+  if(idx<1) return;
+  if(grp.status==='active' && grp.currentCycle){
+    const cc=grp.currentCycle, got=chipLapInfo(grp).receivedThisLap;
+    if(uid===cc.recipientUid || got.indexOf(uid)>-1){ toast('This member has already received their payout'); return; }
+    const prev=order[idx-1];
+    if(prev===cc.recipientUid || got.indexOf(prev)>-1){ toast('Can’t move ahead of the current recipient'); return; }
+  } else if(grp.status!=='completed'){ return; }
+  const p=order[idx-1]; order[idx-1]=uid; order[idx]=p;
+  db.collection('chipereganyu_groups').doc(grp.id).update({rotationOrder:order})
+    .then(function(){ toast('Rotation order updated'); }).catch(function(e){ toast(rotErr(e)); });
+}
+function rotRemove(uid){
+  const grp=activeGroup(); if(!grp||!curUser||grp.createdBy!==curUser.uid) return;
+  if(grp.status==='active' && grp.currentCycle && uid===grp.currentCycle.recipientUid){ toast('Can’t remove the person currently receiving this round. Confirm that payout first.'); return; }
+  const nm=(grp.members[uid]||{}).name||'';
+  const doIt=function(){
+    db.collection('chipereganyu_groups').doc(grp.id).update(chipDeparturePatch(grp, uid))
+      .then(function(){ toast('Removed'); }).catch(function(e){ toast(rotErr(e)); });
+  };
+  if(chipReceivedMidLap(grp, uid)) appConfirm(nm+' already received a payout this lap and hasn’t finished paying everyone else. If you remove them now, the app can’t collect that money. Remove anyway?', doIt, 'Remove', true);
+  else appConfirm('Remove '+nm+' from the group?', doIt, 'Remove', true);
+}
+function rotLeave(){
+  const grp=activeGroup(); if(!grp||!curUser) return;
+  if(curUser.uid===grp.createdBy){ toast('The admin can’t leave. Hand over admin or delete the group instead.'); return; }
+  if(grp.status==='active' && grp.currentCycle && curUser.uid===grp.currentCycle.recipientUid){ toast('You can’t leave while it’s your turn to receive this round. That payout needs to be confirmed first.'); return; }
+  const finished=grp.status==='completed'||grp.status==='closed';
+  const doIt=function(){
+    db.collection('chipereganyu_groups').doc(grp.id).update(chipDeparturePatch(grp, curUser.uid))
+      .then(function(){ toast('Left the group'); exitCircle(); }).catch(function(e){ toast(rotErr(e)); });
+  };
+  if(chipReceivedMidLap(grp, curUser.uid)) appConfirm('You already received a payout this lap and haven’t finished paying the others. If you leave now, the app can’t collect that money. Leave anyway?', doIt, 'Leave', true);
+  else appConfirm(finished?'Remove this circle from your list?':'Leave this group?', doIt, finished?'Remove':'Leave', true);
+}
+function rotDelete(){
+  const grp=activeGroup(); if(!grp||!curUser||grp.createdBy!==curUser.uid) return;
+  if(grp.status==='active' && (grp.memberUids||[]).length>1){ toast('Can’t delete a circle in the middle of a lap. Finish the lap, then close or delete it.'); return; }
+  appConfirm((grp.history||[]).length?'Delete this circle and its whole history for every member? This can’t be undone.':'Delete this group entirely? This can’t be undone.', function(){
+    db.collection('chipereganyu_groups').doc(grp.id).delete()
+      .then(function(){ toast('Group deleted'); exitCircle(); }).catch(function(e){ toast(rotErr(e)); });
+  }, 'Delete', true);
+}
+function rotMakeAdmin(uid){
+  const grp=activeGroup(); if(!grp||!curUser||grp.createdBy!==curUser.uid) return;
+  appConfirm('Make '+((grp.members[uid]||{}).name||'this member')+' the new admin?', function(){
+    db.collection('chipereganyu_groups').doc(grp.id).update({createdBy:uid})
+      .then(function(){ toast('New admin set'); }).catch(function(e){ toast(rotErr(e)); });
+  }, 'Make admin', false);
+}
+
+// ---- rotation screens ----
+function rotTabs(){
+  return '<div class="freq-toggle" style="margin-bottom:6px">'
+    +[['round','Round'],['order','Order'],['history','History']].map(function(t){
+        return '<button class="freq-btn'+(rotTab===t[0]?' on':'')+'" data-action="rot-tab" data-tab="'+t[0]+'">'+t[1]+'</button>'; }).join('')+'</div>';
+}
+function rotWhen(grp){
+  const d=grp.dueDay; if(d==null) return grp.frequency;
+  if(grp.frequency==='weekly') return 'weekly, every '+['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d];
+  return 'monthly, on day '+d;
+}
+function renderRotationDetail(grp){
+  const box=document.getElementById('circle-detail-body');
+  const isAdmin=!!curUser && curUser.uid===grp.createdBy;
+  let h='';
+  if(grp.status==='gathering') h=rotGathering(grp,isAdmin);
+  else {
+    h=rotTabs();
+    if(rotTab==='order') h+=rotOrderHtml(grp,isAdmin);
+    else if(rotTab==='history') h+=rotHistoryHtml(grp);
+    else if(grp.status==='active') h+=rotRoundHtml(grp,isAdmin);
+    else h+=rotFinishedHtml(grp,isAdmin);
+  }
+  box.innerHTML=h;
+}
+function rotMemberRow(grp, uid, extra){
+  const m=(grp.members||{})[uid]||{name:'?'};
+  return '<div class="member-row"><div class="member-dot" style="background:'+escapeHtml(m.color||'#ccc')+'"></div>'
+    +'<div class="member-name">'+escapeHtml(m.name)+(uid===grp.createdBy?'<span class="member-sub">Admin</span>':'')+'</div>'+(extra||'')+'</div>';
+}
+function rotGathering(grp,isAdmin){
+  let h='<p class="section-title">'+icon('users')+' Members</p>';
+  (grp.rotationOrder||[]).forEach(function(uid){
+    const isSelf=curUser&&curUser.uid===uid;
+    let x='';
+    if(uid!==grp.createdBy && (isAdmin||isSelf)) x=rotBtn(isSelf?'rot-leave':'rot-remove', isSelf?'Leave':'Remove','danger',{uid:uid});
+    h+=rotMemberRow(grp,uid,x);
+  });
+  h+='<p class="field-hint">Contributions: '+escapeHtml(fmtMWK(grp.contributionAmount))+', '+escapeHtml(rotWhen(grp))+'</p>';
+  h+='<p style="font-size:13px;color:var(--muted);margin-top:12px">Share code <b>'+escapeHtml(grp.id)+'</b> with others to join, or</p>';
+  h+='<button class="btn-line" data-action="share-link" data-id="'+escapeHtml(grp.id)+'">'+icon('share-2')+' Copy invite link</button>';
+  if(isAdmin && (grp.rotationOrder||[]).length>=2) h+='<button class="btn-paid" data-action="rot-start">'+icon('rotate-cw')+' Start rotation</button>';
+  else if((grp.rotationOrder||[]).length<2) h+='<p style="font-size:13px;color:var(--muted);margin-top:10px">Need at least 2 members to start.</p>';
+  if(isAdmin) h+='<button class="btn-line" style="color:var(--red)" data-action="rot-delete">Delete this group</button>';
+  return h;
+}
+function rotRoundHtml(grp,isAdmin){
+  const cc=grp.currentCycle, sm=chipRoundSummary(grp), me=curUser&&curUser.uid;
+  const info=chipLapInfo(grp), t=today();
+  const recipient=(grp.members||{})[cc.recipientUid]||{name:'?'};
+  const late=chipOverdueDays(cc.dueDate,t);
+  const iAmRecipient=me===cc.recipientUid, canConfirm=iAmRecipient||isAdmin;
+  let h='<p class="section-title">Lap '+info.lap+' · Round '+Number(cc.cycleNumber)+'</p>';
+  h+='<div class="circle-card" style="cursor:default"><div class="circle-badge">'+icon('rotate-cw')+'</div><div class="circle-info">'
+    +'<p class="circle-name">'+escapeHtml(recipient.name)+'’s turn'+(iAmRecipient?' (you)':'')+'</p>'
+    +'<p class="circle-sub">'+escapeHtml(fmtMWK(cc.amount))+' · due '+escapeHtml(fmtDate(cc.dueDate))+(late?' · '+late+'d overdue':'')+'</p></div></div>';
+  const pct=Math.round(sm.pct*100);
+  h+='<p class="progress-label"><span>'+sm.received.length+' of '+sm.contributors.length+' confirmed'+(sm.sent.length?' · '+sm.sent.length+' sent':'')+'</span><span>'+pct+'%</span></p>';
+  h+='<div class="progress-track"><div class="progress-fill" style="width:'+pct+'%"></div></div>';
+  if(sm.goneUnpaid>0) h+='<p class="field-hint" style="color:var(--red)">Short by '+escapeHtml(fmtMWK(sm.shortAmount))+': '+sm.goneUnpaid+(sm.goneUnpaid===1?' member':' members')+' left before paying.</p>';
+  h+='<p class="section-title">Contributions</p>';
+  sm.contributors.forEach(function(uid){
+    const c=cc.contributions[uid]||{}, paid=!!c.paid, sent=!paid&&!!c.sent, isLate=!paid&&!sent&&late>0;
+    const cls=paid?'paid':(isLate?'late':''), txt=paid?'Received':(sent?'Sent':(isLate?'Late':'Pending'));
+    let x='';
+    if(me===uid && !paid) x+=rotBtn(sent?'rot-unsend':'rot-sent', sent?'Take back':'I’ve sent it', sent?'':'go');
+    if(canConfirm){
+      if(paid) x+=rotBtn('rot-recv','Undo','',{uid:uid,on:'0'});
+      else {
+        x+=rotBtn('rot-recv','Got it','go',{uid:uid,on:'1'});
+        if(me!==uid) x+=rotBtn('rot-remind','Remind','',{uid:uid});
+      }
+    }
+    h+='<div class="member-row"><div class="member-dot '+cls+'"></div><div class="member-name">'+escapeHtml(((grp.members||{})[uid]||{name:'?'}).name)
+      +'<span class="member-sub">'+txt+'</span></div><div class="row-actions">'+x+'</div></div>';
+  });
+  Object.keys(cc.departedPaid||{}).forEach(function(u){
+    h+='<div class="member-row"><div class="member-dot paid"></div><div class="member-name">'+escapeHtml(cc.departedPaid[u].name||'Former member')+'<span class="member-sub">Paid, then left</span></div></div>';
+  });
+  if(canConfirm){
+    if(sm.allReceived) h+='<button class="btn-paid" data-action="rot-confirm">'+icon('check')+' Confirm payout</button>';
+    else if(isAdmin) h+='<button class="btn-line" data-action="rot-force">Force confirm (short round)</button>';
+  }
+  return h;
+}
+function rotFinishedHtml(grp,isAdmin){
+  let h='<div class="empty-state" style="margin-top:8px">'+icon('circle-check-big');
+  if(grp.status==='closed') h+='<p>This circle is closed. The history stays here.</p></div>';
+  else {
+    h+='<p>Lap complete. Everyone has had their turn.</p></div>';
+    if(isAdmin){
+      h+='<p class="field-hint">Reorder on the Order tab if you like, then start the next lap.</p>';
+      h+='<button class="btn-paid" data-action="rot-newlap">'+icon('rotate-cw')+' Start another lap</button>';
+      h+='<button class="btn-line" data-action="rot-close">Close this circle</button>';
+    } else h+='<p class="field-hint">Waiting for the admin to start another lap or close the circle.</p>';
+  }
+  return h;
+}
+function rotOrderHtml(grp,isAdmin){
+  const cc=grp.currentCycle, got=chipLapInfo(grp).receivedThisLap, order=grp.rotationOrder||[];
+  let h='<p class="section-title">Rotation order</p>';
+  order.forEach(function(uid,i){
+    const isRecipient=!!cc && uid===cc.recipientUid, before=got.indexOf(uid)>-1;
+    const label=isRecipient?'Receiving now':(before?'Received':(grp.status==='active'?'Upcoming':''));
+    const prev=i>0?order[i-1]:null;
+    let canUp=false;
+    if(isAdmin && i>0){
+      if(grp.status==='completed') canUp=true;
+      else if(grp.status==='active') canUp=!isRecipient && !before && prev!==(cc&&cc.recipientUid) && got.indexOf(prev)<0;
+    }
+    const canRemove=isAdmin && uid!==grp.createdBy && !isRecipient && grp.status!=='closed';
+    let x='';
+    if(canUp) x+=rotBtn('rot-moveup','Move up','',{uid:uid});
+    if(isAdmin && uid!==grp.createdBy) x+=rotBtn('rot-admin','Make admin','',{uid:uid});
+    if(canRemove) x+=rotBtn('rot-remove','Remove','danger',{uid:uid});
+    const m=(grp.members||{})[uid]||{name:'?'};
+    h+='<div class="member-row"><span class="paid-tag" style="width:18px">'+(i+1)+'</span><div class="member-dot" style="background:'+escapeHtml(m.color||'#ccc')+'"></div>'
+      +'<div class="member-name">'+escapeHtml(m.name)+(uid===grp.createdBy?' (admin)':'')+(label?'<span class="member-sub">'+label+'</span>':'')+'</div><div class="row-actions">'+x+'</div></div>';
+  });
+  if(curUser && !isAdmin) h+='<button class="btn-line" style="color:var(--muted)" data-action="rot-leave">Leave this group</button>';
+  if(isAdmin && (grp.status!=='active' || order.length<=1)) h+='<button class="btn-line" style="color:var(--red)" data-action="rot-delete">Delete this group</button>';
+  if(isAdmin && grp.status==='completed') h+='<button class="btn-line" data-action="rot-close">Close this circle</button>';
+  return h;
+}
+function rotHistoryHtml(grp){
+  const hist=(grp.history||[]).slice().sort(function(a,b){ return (b.cycleNumber||0)-(a.cycleNumber||0); });
+  if(!hist.length) return '<div class="empty-state" style="margin-top:8px">'+icon('clock')+'<p>No payouts yet.</p></div>';
+  const lapOf={}; chipLapInfo(grp).entries.forEach(function(e){ lapOf[e.h.cycleNumber]=e.lap; });
+  let h='<p class="section-title">Payouts</p>';
+  hist.forEach(function(e){
+    const name=e.recipientName||((grp.members||{})[e.recipientUid]||{}).name||'Former member';
+    const got=e.collected!=null?e.collected:e.amount, short=got<e.amount;
+    h+='<div class="member-row"><div class="member-dot paid"></div><div class="member-name">'+escapeHtml(name)
+      +'<span class="member-sub">Lap '+(e.lap||lapOf[e.cycleNumber]||1)+' · Round '+Number(e.cycleNumber)+' · '+escapeHtml(fmtDate(e.date))+'</span></div>'
+      +'<div class="paid-tag'+(short?' late':' on')+'">'+escapeHtml(fmtMWK(got))+(short?' of '+escapeHtml(fmtMWK(e.amount)):'')+'</div></div>';
+  });
+  return h;
+}
+
 
 // ---- Village Banking ----
 // v1 scope on purpose: shares-based savings plus an optional social/emergency
@@ -1071,6 +1427,7 @@ function openModal(kind, ctx){
   const root = document.getElementById('modal-root');
   const grp = activeGroup();
   if(kind==='create'){
+    window._freq = 'monthly'; window._sfEnabled = false;
     const isVB = curProduct === 'village_banking';
     root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
       +'<div class="modal-sheet"><h3>'+icon(isVB?'piggy-bank':'rotate-cw')+' New '+(isVB?'village bank':'circle')+'</h3>'
@@ -1080,6 +1437,12 @@ function openModal(kind, ctx){
       +'<label class="field-label">Frequency</label><div class="freq-toggle">'
       +'<button class="freq-btn on" id="freq-monthly" onclick="pickFreq(\'monthly\')">Monthly</button>'
       +'<button class="freq-btn" id="freq-weekly" onclick="pickFreq(\'weekly\')">Weekly</button></div>'
+      + (isVB ? '' : (
+          '<div id="day-monthly"><label class="field-label">Pay day of the month (1 to 31)</label>'
+          +'<input class="field-input" id="cg-day" type="number" inputmode="numeric" min="1" max="31" placeholder="blank = today\u2019s date"></div>'
+          +'<div id="day-weekly" class="hidden"><label class="field-label">Pay day of the week</label>'
+          +'<select class="field-input" id="cg-wday">'+['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map(function(n,i){ return '<option value="'+i+'"'+(i===new Date().getDay()?' selected':'')+'>'+n+'</option>'; }).join('')+'</select></div>'
+        ))
       + (isVB ? (
           '<div class="toggle-row"><label class="field-label">Enable social fund</label>'
           +'<div class="switch" id="sf-toggle" onclick="toggleSocialFund()"></div></div>'
@@ -1091,17 +1454,9 @@ function openModal(kind, ctx){
   } else if(kind==='join'){
     root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
       +'<div class="modal-sheet"><h3>'+icon('link')+' Join a circle</h3>'
-      +'<label class="field-label">Circle code</label><input class="field-input" id="jg-code" placeholder="e.g. F3K9XR" style="text-transform:uppercase">'
+      +'<label class="field-label">Circle code</label><input class="field-input" id="jg-code" placeholder="e.g. a2f9k3xz" autocapitalize="none" autocorrect="off">'
       +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
       +'<button class="btn-primary" id="modal-submit" onclick="submitJoin()">Join</button></div></div></div>';
-  } else if(kind==='mark-paid'){
-    root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
-      +'<div class="modal-sheet"><h3>'+icon('check')+' Mark as paid</h3>'
-      +'<label class="field-label">Payment reference (optional)</label>'
-      +'<input class="field-input" id="mp-ref" placeholder="e.g. Airtel Money TXN ID">'
-      +'<p class="field-hint">Not verified automatically — just gives the recipient something to check against.</p>'
-      +'<div class="modal-actions"><button class="btn-secondary" onclick="closeModal()">Cancel</button>'
-      +'<button class="btn-primary" onclick="submitMarkPaid(\''+ctx.uid+'\')">Confirm</button></div></div></div>';
   } else if(kind==='vb-contribute'){
     root.innerHTML = '<div class="modal-overlay" onclick="if(event.target===this)closeModal()">'
       +'<div class="modal-sheet"><h3>'+icon('piggy-bank')+' Record contribution</h3>'
@@ -1129,12 +1484,15 @@ function openModal(kind, ctx){
   }
 }
 function closeModal(){ document.getElementById('modal-root').innerHTML=''; }
-window._freq = 'monthly';
+window._freq = 'monthly'; // reset in openModal('create')
 window._sfEnabled = false;
 function pickFreq(f){
   document.getElementById('freq-monthly').classList.toggle('on', f==='monthly');
   document.getElementById('freq-weekly').classList.toggle('on', f==='weekly');
   window._freq = f;
+  const dm=document.getElementById('day-monthly'), dw=document.getElementById('day-weekly');
+  if(dm) dm.classList.toggle('hidden', f!=='monthly');
+  if(dw) dw.classList.toggle('hidden', f!=='weekly');
 }
 function toggleSocialFund(){
   window._sfEnabled = !window._sfEnabled;
@@ -1147,6 +1505,17 @@ function submitCreate(){
   if(!name){ toast('Enter a group name'); return; }
   if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
   const extra = { frequency: window._freq, amount: amount };
+  if(curProduct !== 'village_banking'){
+    if(window._freq==='weekly'){
+      const w = Number(document.getElementById('cg-wday').value);
+      extra.dueDay = (w>=0 && w<=6) ? w : new Date().getDay();
+    } else {
+      const raw = document.getElementById('cg-day').value.trim();
+      const dd = raw==='' ? new Date().getDate() : Math.floor(Number(raw));
+      if(!(dd>=1 && dd<=31)){ toast('Pay day must be between 1 and 31'); return; }
+      extra.dueDay = dd;
+    }
+  }
   if(curProduct === 'village_banking'){
     extra.socialFundEnabled = window._sfEnabled;
     extra.socialFundAmount = window._sfEnabled ? Number((document.getElementById('cg-sfamount')||{}).value || 0) : 0;
@@ -1160,13 +1529,6 @@ function submitJoin(){
   if(btn) btn.disabled = true;
   joinCircle(code);
 }
-function submitMarkPaid(uid){
-  const ref = document.getElementById('mp-ref').value.trim();
-  const grp = activeGroup(); if(!grp) return;
-  closeModal();
-  applyPaidUpdate(grp, uid, true, ref);
-}
-
 init();
 </script>
 </body>
