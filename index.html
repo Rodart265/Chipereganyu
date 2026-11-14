@@ -429,11 +429,21 @@ function showView(viewName, renderFn){
 
 function signInWithGoogle(){
   const provider = new firebase.auth.GoogleAuthProvider();
-  auth.signInWithRedirect(provider).catch(function(e){
+  const explain = function(e){
     const c = e && e.code || '';
     if(c==='auth/unauthorized-domain') toast('This website is not authorised in Firebase yet (Authentication, Settings, Authorized domains).');
     else if(c==='auth/operation-not-allowed') toast('Google sign-in is not switched on in Firebase (Authentication, Sign-in method).');
+    else if(c==='auth/popup-closed-by-user' || c==='auth/cancelled-popup-request') { /* closed it themselves */ }
     else toast('Sign-in failed: '+(c||'unknown error'));
+  };
+  // Popup first. The redirect flow often lands back on the sign-in screen on phones, because browsers block the
+  // sign-in state that has to travel between the Firebase domain and this site. The redirect stays as a fallback
+  // for browsers that cannot open the popup.
+  auth.signInWithPopup(provider).catch(function(e){
+    const c = e && e.code || '';
+    if(c==='auth/popup-blocked' || c==='auth/operation-not-supported-in-this-environment'){
+      auth.signInWithRedirect(provider).catch(explain);
+    } else explain(e);
   });
 }
 function signOut(){ auth.signOut(); }
